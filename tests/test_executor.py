@@ -109,7 +109,7 @@ def test_zoom_returns_png():
     ex, _, _ = make()
     ex.screenshot()
     data = ex.perform("zoom", {"region": [0, 0, 100, 100]})
-    assert Image.open(io.BytesIO(data)).format == "PNG"
+    assert Image.open(io.BytesIO(data)).format == "JPEG"
 
 
 def test_overlay_hidden_during_screenshot():
@@ -133,3 +133,40 @@ def test_on_pointer_called_with_logical_position():
     ex.screenshot()
     ex.perform("mouse_move", {"coordinate": [10, 10]})
     assert seen
+
+
+def test_wait_returns_early_when_stopped():
+    import threading
+    import time as t
+    stop = threading.Event()
+    stop.set()
+    ex = PyAutoGuiExecutor(gui=FakeGui(), set_clipboard=lambda s: None, is_mac=False, stop_event=stop)
+    start = t.monotonic()
+    ex.perform("wait", {"duration": 5})
+    assert t.monotonic() - start < 1
+
+
+def test_injecting_flag_set_while_pressing_keys():
+    seen = []
+    gui = FakeGui()
+    ex, _, _ = make(gui)
+    gui.hotkey = lambda *k: seen.append(ex.injecting)
+    ex.perform("key", {"text": "Escape"})
+    assert seen == [True] and ex.injecting is False
+
+
+def test_zoom_takes_fresh_capture():
+    gui = FakeGui()
+    ex, _, _ = make(gui)
+    ex.screenshot()
+    count = []
+    orig = gui.screenshot
+    gui.screenshot = lambda: count.append(1) or orig()
+    ex.perform("zoom", {"region": [0, 0, 10, 10]})
+    assert count == [1]
+
+
+def test_screenshot_is_jpeg_and_small():
+    ex, _, _ = make(FakeGui(logical=(1920, 1080), image=(1920, 1080)))
+    data = ex.screenshot()
+    assert data[:2] == b"\xff\xd8"

@@ -32,6 +32,7 @@ class App:
         self.root, self.services = root, services or get_platform()
         self.services.prepare()
         self.agent: Agent | None = None
+        self.executor: PyAutoGuiExecutor | None = None
         self._pending: tuple[threading.Event, list] | None = None
         root.title("Робот-помощник")
         root.configure(bg="white")
@@ -40,7 +41,7 @@ class App:
         self.overlay = Overlay(root, self.services)
         self.stop_win = self._make_stop_window()
         self.overlay.windows.append(self.stop_win)  # hidden with the overlay during screenshots
-        self.services.watch_escape(lambda: root.after(0, self.stop))
+        self.services.watch_escape(self._on_global_escape)
         self.frame = tk.Frame(root, bg="white")
         self.frame.pack(expand=True, fill="both", padx=40, pady=30)
         if config.get_api_key() is None or self.services.missing_permissions():
@@ -110,15 +111,20 @@ class App:
         task = self.entry.get("1.0", "end").strip()
         if not task:
             return
+        key = config.get_api_key()
+        if not key:
+            self.show_setup()
+            return
+        client = anthropic.Anthropic(api_key=key)
+        hooks = Hooks(on_state=lambda s: None, on_say=self.say, ask_permission=self.ask,
+                      hand_over=self.hand_over, on_pointer=self.overlay.move_hand)
+        self.agent = Agent(client, None, hooks)
+        self.executor = PyAutoGuiExecutor(hide_for_screenshot=self.overlay.hidden_for_screenshot,
+                                          on_pointer=self.overlay.move_hand, stop_event=self.agent._stop)
+        self.agent.executor = self.executor
         self.root.withdraw()
         self.overlay.show(T["working"])
         self.stop_win.deiconify()
-        executor = PyAutoGuiExecutor(hide_for_screenshot=self.overlay.hidden_for_screenshot,
-                                     on_pointer=self.overlay.move_hand)
-        hooks = Hooks(on_state=lambda s: None, on_say=self.say, ask_permission=self.ask,
-                      hand_over=self.hand_over, on_pointer=self.overlay.move_hand)
-        client = anthropic.Anthropic(api_key=config.get_api_key())
-        self.agent = Agent(client, executor, hooks)
         self.last_said = ""
         threading.Thread(target=self._run, args=(task,), daemon=True).start()
 
@@ -138,9 +144,16 @@ class App:
         status = {State.DONE: T["done"], State.STOPPED: T["stopped"]}.get(state, "")
         self.show_main(self.last_said or status)
 
+    def _on_global_escape(self):
+        # pynput also sees the Esc that the robot itself presses; ignore those
+        if self.executor is not None and self.executor.injecting:
+            return
+        self.root.after(0, self.stop)
+
     def stop(self):
         if self.agent:
             self.agent.stop()
+            self.overlay.set_label(T["stopped"])  # show at once; the thread finishes after
         self._resolve(False)
 
     # --- hooks (called from the agent thread) --------------------------------------
@@ -158,10 +171,14 @@ class App:
     def _dialog(self, text: str, buttons: list[tuple[str, str, object]], hide_overlay: bool) -> object:
         event, box = threading.Event(), []
         self._pending = (event, box)
+        if self.agent is not None and self.agent.stopped:  # STOP raced the dialog
+            self._pending = None
+            return False
 
         def build():
             if hide_overlay:
                 self.overlay.hide()
+                self.stop_win.deiconify()  # keep STOP reachable while the person works
             win = tk.Toplevel(self.root, bg="white")
             win.attributes("-topmost", True)
             win.title("Робот-помощник")
@@ -177,7 +194,7 @@ class App:
         event.wait()
         self._pending = None
         self.root.after(0, lambda: self._dialog_win.destroy())
-        if hide_overlay:
+        if hide_overlay and not (self.agent and self.agent.stopped):
             self.overlay.show(T["working"])
         return box[0]
 
@@ -185,9 +202,10 @@ class App:
         self.services.speak(question)
         return bool(self._dialog(question, [(T["ask_yes"], GREEN, True), (T["ask_no"], RED, False)], False))
 
-    def hand_over(self, reason: str) -> None:
+    def hand_over(self, reason: str) -> bool:
         self.services.speak(reason)
-        self._dialog(T["hand_over"] + "\n" + reason, [(T["ready_button"], GREEN, True)], True)
+        return bool(self._dialog(T["hand_over"] + "\n" + reason,
+                                 [(T["ready_button"], GREEN, True), (T["stop"], RED, False)], True))
 
 
 def main():

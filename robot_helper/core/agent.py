@@ -15,6 +15,7 @@ from robot_helper.core.tools import TOOLS
 
 MODEL = "claude-opus-5-5"
 MAX_STEPS = 40
+MAX_IMAGES = 90  # the API accepts at most 100 images per request
 HALT_TEXT = "Not executed: an earlier computer action in this turn failed."
 
 
@@ -33,19 +34,22 @@ class Hooks:
     on_state: Callable[[State], None]
     on_say: Callable[[str], None]
     ask_permission: Callable[[str], bool]
-    hand_over: Callable[[str], None]
+    hand_over: Callable[[str], bool | None]  # False = the person pressed STOP
     on_pointer: Callable[[int, int], None]
 
 
-def _image(png: bytes) -> dict:
+def _image(data: bytes) -> dict:
+    media = "image/jpeg" if data[:2] == b"\xff\xd8" else "image/png"
     return {"type": "image",
-            "source": {"type": "base64", "media_type": "image/png", "data": base64.b64encode(png).decode()}}
+            "source": {"type": "base64", "media_type": media, "data": base64.b64encode(data).decode()}}
 
 
 class Agent:
-    def __init__(self, client, executor, hooks: Hooks, model: str = MODEL, max_steps: int = MAX_STEPS):
+    def __init__(self, client, executor, hooks: Hooks, model: str = MODEL, max_steps: int = MAX_STEPS,
+                 max_images: int = MAX_IMAGES):
         self.client, self.executor, self.hooks = client, executor, hooks
-        self.model, self.max_steps = model, max_steps
+        self.model, self.max_steps, self.max_images = model, max_steps, max_images
+        self.images = 0
         self._stop = threading.Event()
 
     def stop(self) -> None:
@@ -66,6 +70,7 @@ class Agent:
             return self._finish(State.STOPPED, T["stopped"])
         messages: list[dict] = [{"role": "user", "content": [
             {"type": "text", "text": task}, _image(self.executor.screenshot())]}]
+        self.images = 1
         for _ in range(self.max_steps):
             if self.stopped:
                 return self._finish(State.STOPPED, T["stopped"])
@@ -96,6 +101,8 @@ class Agent:
             results = self._run_calls(calls)
             if self.stopped:
                 return self._finish(State.STOPPED, T["stopped"])
+            if self.images >= self.max_images:
+                return self._finish(State.STOPPED, T["too_many_steps"])
             messages.append({"role": "user", "content": results})
         return self._finish(State.STOPPED, T["too_many_steps"])
 
@@ -121,16 +128,22 @@ class Agent:
                     halted = True
                     results.append({**base, "is_error": True, "content": f"Action failed: {exc}"})
                     continue
+                if isinstance(out, bytes):
+                    self.images += 1
                 content = [_image(out)] if isinstance(out, bytes) else [
                     {"type": "text", "text": out if isinstance(out, str) else "OK"}]
                 results.append({**base, "content": content})
             elif block.name == "ask_permission":
                 self.hooks.on_state(State.WAITING)
                 yes = self.hooks.ask_permission(block.input["question"]) and not self.stopped
+                self._forget_pointer()  # the person used the mouse to answer
                 results.append({**base, "content": "yes" if yes else "no"})
             elif block.name == "hand_over_to_human":
                 self.hooks.on_state(State.WAITING)
-                self.hooks.hand_over(block.input["reason"])
+                finished = self.hooks.hand_over(block.input["reason"])
+                self._forget_pointer()
+                if finished is False:
+                    self.stop()
                 results.append({**base, "content": "done"})
             else:
                 results.append({**base, "is_error": True, "content": f"Unknown tool: {block.name}"})
@@ -142,9 +155,12 @@ class Agent:
             return True
         self.hooks.on_state(State.WAITING)
         if self.hooks.ask_permission(T["paused_continue"]) and not self.stopped:
-            forget = getattr(self.executor, "forget_pointer", None)
-            if forget:
-                forget()
+            self._forget_pointer()
             return True
         self.stop()
         return False
+
+    def _forget_pointer(self) -> None:
+        forget = getattr(self.executor, "forget_pointer", None)
+        if forget:
+            forget()

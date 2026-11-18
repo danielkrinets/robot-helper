@@ -91,9 +91,15 @@ class Overlay:
     def hidden_for_screenshot(self):
         was_visible = self._visible
 
+        # move windows off-screen instead of withdraw/deiconify: re-showing a window activates it
+        # and would steal keyboard focus from the field the robot just clicked
+        saved = {}
+
         def hide():
-            self._hide_all()
-            self.root.update()
+            for win in self.windows:
+                saved[win] = win.geometry()
+                win.geometry("+-10000+-10000")
+            self.root.update_idletasks()
 
         if was_visible:
             self._on_main(hide, wait=True)
@@ -102,7 +108,10 @@ class Overlay:
             yield
         finally:
             if was_visible:
-                self._on_main(self._show_all)
+                def restore():
+                    for win, geom in saved.items():
+                        win.geometry(geom)
+                self._on_main(restore)
 
 
 if __name__ == "__main__":  # manual demo: overlay for 5 seconds

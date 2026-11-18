@@ -39,3 +39,15 @@ def test_powershell_quote_escapes_single_quotes():
 
 def test_dictation_hint_is_text():
     assert MacServices().dictation_hint() and WindowsServices().dictation_hint()
+
+
+def test_windows_click_through_sets_alpha_before_layered_style(monkeypatch):
+    import ctypes
+    from types import SimpleNamespace as NS
+    order = []
+    user32 = NS(GetParent=lambda h: 1, GetWindowLongW=lambda h, i: 0,
+                SetWindowLongW=lambda h, i, v: order.append("style"))
+    monkeypatch.setattr(ctypes, "windll", NS(user32=user32), raising=False)
+    win = NS(winfo_id=lambda: 5, attributes=lambda *a: order.append(("attr",) + a))
+    WindowsServices().make_click_through(win)
+    assert order[0] == ("attr", "-alpha", 0.99) and order[-1] == "style"

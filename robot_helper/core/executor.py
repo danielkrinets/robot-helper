@@ -41,9 +41,10 @@ class Executor(Protocol):
     def pointer(self) -> tuple[int, int] | None: ...
 
 
-def _png(img: Image.Image) -> bytes:
+def _jpeg(img: Image.Image) -> bytes:
+    # JPEG keeps each screenshot ~5-10x smaller than PNG, so long tasks stay under request limits
     buf = io.BytesIO()
-    img.save(buf, "PNG")
+    img.convert("RGB").save(buf, "JPEG", quality=80)
     return buf.getvalue()
 
 
@@ -51,7 +52,8 @@ class PyAutoGuiExecutor:
     def __init__(self, gui=None, set_clipboard: Callable[[str], None] | None = None,
                  sleep: Callable[[float], None] = time.sleep, is_mac: bool | None = None,
                  hide_for_screenshot: Callable[[], contextlib.AbstractContextManager] | None = None,
-                 on_pointer: Callable[[int, int], None] | None = None):
+                 on_pointer: Callable[[int, int], None] | None = None,
+                 stop_event=None):
         if gui is None:
             import pyautogui as gui  # imported lazily so tests run without a display
 
@@ -67,6 +69,8 @@ class PyAutoGuiExecutor:
         self.gui, self.set_clipboard, self.sleep, self.is_mac = gui, set_clipboard, sleep, is_mac
         self.hide = hide_for_screenshot or contextlib.nullcontext
         self.on_pointer = on_pointer
+        self.stop_event = stop_event
+        self.injecting = False  # True while we send keys, so our own Esc is not taken as STOP
         self.scale = 1.0  # model px per image px
         self.ratio = 1.0  # logical points per image px
         self.last: tuple[int, int] | None = None
@@ -85,16 +89,16 @@ class PyAutoGuiExecutor:
     def screenshot(self) -> bytes:
         img = self._capture()
         size = (max(1, math.floor(img.width * self.scale)), max(1, math.floor(img.height * self.scale)))
-        return _png(img.resize(size) if self.scale < 1 else img)
+        return _jpeg(img.resize(size) if self.scale < 1 else img)
 
     def _zoom(self, region: list[int]) -> bytes:
-        img = self._capture() if self._image is None else self._image
+        img = self._capture()
         x0, y0, x1, y1 = [round(v / self.scale) for v in region]
         crop = img.crop((x0, y0, x1, y1))
         s = fit_scale(crop.width, crop.height)
         if s < 1:
             crop = crop.resize((max(1, int(crop.width * s)), max(1, int(crop.height * s))))
-        return _png(crop)
+        return _jpeg(crop)
 
     # --- coordinates -----------------------------------------------------------
     def _to_logical(self, xy: list[int]) -> tuple[int, int]:
@@ -181,15 +185,23 @@ class PyAutoGuiExecutor:
             self.gui.hotkey("command" if self.is_mac else "ctrl", "v")
             return None
         if name == "key":
-            for _ in range(int(args.get("repeat", 1))):
-                self.gui.hotkey(*self._keys(args["text"]))
+            self.injecting = True
+            try:
+                for _ in range(int(args.get("repeat", 1))):
+                    self.gui.hotkey(*self._keys(args["text"]))
+            finally:
+                self.injecting = False
             return None
         if name == "hold_key":
             with self._modifiers(args["text"]):
                 self.sleep(float(args["duration"]))
             return None
         if name == "wait":
-            self.sleep(min(float(args["duration"]), 300))
+            seconds = min(float(args["duration"]), 300)
+            if self.stop_event is not None:
+                self.stop_event.wait(seconds)  # STOP interrupts a long wait
+            else:
+                self.sleep(seconds)
             return None
         raise ValueError(f"Unknown computer action: {name}")
 

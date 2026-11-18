@@ -238,3 +238,30 @@ def test_unknown_tool_is_error_result():
     h, _, _ = hooks()
     Agent(client, FakeExecutor(), h).run("x")
     assert results(client, 1)[0]["is_error"] is True
+
+
+def test_pointer_forgotten_after_dialogs():
+    forgot = []
+    ex = FakeExecutor()
+    ex.forget_pointer = lambda: forgot.append(1)
+    client = FakeClient(resp(tool("ask_permission", {"question": "?"}, toolset=None)),
+                        resp(tool("hand_over_to_human", {"reason": "r"}, toolset=None)),
+                        resp(stop="end_turn"))
+    h, _, _ = hooks()
+    Agent(client, ex, h).run("x")
+    assert len(forgot) == 2
+
+
+def test_hand_over_declined_stops():
+    client = FakeClient(resp(tool("hand_over_to_human", {"reason": "r"}, toolset=None)),
+                        resp(stop="end_turn"))
+    h, _, _ = hooks(hand_over=lambda r: False)
+    assert Agent(client, FakeExecutor(), h).run("x") == State.STOPPED
+    assert len(client.requests) == 1
+
+
+def test_image_budget_stops_before_api_limit():
+    client = FakeClient(*[resp(tool("screenshot")) for _ in range(10)])
+    h, said, _ = hooks()
+    assert Agent(client, FakeExecutor(), h, max_images=3).run("x") == State.STOPPED
+    assert said[-1] == T["too_many_steps"]

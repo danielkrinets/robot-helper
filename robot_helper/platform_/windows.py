@@ -9,6 +9,7 @@ from robot_helper.platform_.base import watch_escape_with_pynput
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020
+WS_EX_NOACTIVATE = 0x08000000
 
 
 def ps_quote(text: str) -> str:
@@ -52,9 +53,11 @@ class WindowsServices:
     def make_click_through(self, window) -> None:
         import ctypes
 
+        # a layered window draws nothing until its alpha is set; Tk sets it via -alpha
+        window.attributes("-alpha", 0.99)
         hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
         style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)
 
     def watch_escape(self, callback: Callable[[], None]) -> None:
         watch_escape_with_pynput(callback)
