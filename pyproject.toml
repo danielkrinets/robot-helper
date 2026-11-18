@@ -2,7 +2,7 @@
 name = "robot-helper"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["anthropic", "pyautogui", "pynput", "pillow", "keyring"]
+dependencies = ["anthropic", "pyautogui", "pynput", "pillow", "keyring", "pyperclip"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
