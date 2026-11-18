@@ -23,3 +23,10 @@ def test_rounds_to_nearest():
 
 def test_scale_never_above_one():
     assert fit_scale(10, 10) <= 1.0
+
+
+def test_full_hd_limited_by_total_pixels():
+    # 1920x1080 = 2.07 MP exceeds the 1.15 MP budget, so the pixel cap wins over 1568/1920
+    scale = fit_scale(1920, 1080)
+    assert abs(scale - (1_150_000 / (1920 * 1080)) ** 0.5) < 1e-9
+    assert 1920 * scale * 1080 * scale <= 1_150_000 + 1
