@@ -51,3 +51,21 @@ def test_windows_click_through_sets_alpha_before_layered_style(monkeypatch):
     win = NS(winfo_id=lambda: 5, attributes=lambda *a: order.append(("attr",) + a))
     WindowsServices().make_click_through(win)
     assert order[0] == ("attr", "-alpha", 0.99) and order[-1] == "style"
+
+
+def test_mac_open_settings_opens_privacy_pane(monkeypatch):
+    calls = []
+    monkeypatch.setattr("subprocess.Popen", lambda args, **kw: calls.append(args))
+    svc = MacServices()
+    monkeypatch.setattr(svc, "_request", lambda name: None)
+    svc.open_settings("Запись экрана")
+    assert calls == [["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"]]
+
+
+def test_mac_panes_cover_all_permissions():
+    from robot_helper.platform_.macos import PANES
+    assert set(PANES) == {"Универсальный доступ", "Запись экрана", "Мониторинг ввода"}
+
+
+def test_windows_open_settings_is_noop():
+    WindowsServices().open_settings("Запись экрана")

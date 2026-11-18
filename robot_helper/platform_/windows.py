@@ -29,6 +29,9 @@ class WindowsServices:
     def missing_permissions(self) -> list[str]:
         return []
 
+    def open_settings(self, name: str) -> None:
+        pass  # Windows needs no permissions
+
     def speak(self, text: str) -> None:
         script = (
             "Add-Type -AssemblyName System.Speech;"

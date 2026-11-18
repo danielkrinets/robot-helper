@@ -186,10 +186,14 @@ class App:
         if missing:
             tk.Label(perm_card, text="Нужны разрешения macOS", bg=CARD, fg=FG, font=font(16, "bold")).pack(anchor="w")
             tk.Label(perm_card, text="Системные настройки, «Конфиденциальность и безопасность». "
-                     "Включите эту программу в разделах:", bg=CARD, fg=MUTED, font=font(14),
+                     "Нажмите «Открыть» и включите RobotHelper в каждом разделе:", bg=CARD, fg=MUTED, font=font(14),
                      wraplength=700, justify="left").pack(anchor="w", pady=(4, 6))
             for item in [m.split("→")[-1].strip() for m in missing] + ["Мониторинг ввода"]:
-                tk.Label(perm_card, text=item, bg=CARD, fg=FG, font=font(15)).pack(anchor="w", padx=(10, 0))
+                row = tk.Frame(perm_card, bg=CARD)
+                row.pack(fill="x", pady=3)
+                tk.Label(row, text=item, bg=CARD, fg=FG, font=font(15)).pack(side="left", padx=(4, 0))
+                Pill(row, "Открыть", BLUE, lambda n=item: self.services.open_settings(n),
+                     w=110, h=34, size=14).pack(side="right")
             tk.Label(perm_card, text="Потом закройте программу и откройте снова.", bg=CARD, fg=MUTED,
                      font=font(14)).pack(anchor="w", pady=(6, 8))
             Pill(perm_card, "Проверить снова", FIELD, self._after_setup, w=180, h=40, size=15).pack(anchor="w")
