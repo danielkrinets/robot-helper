@@ -24,7 +24,7 @@ class FakeClient:
     def __init__(self, *responses):
         self.responses = list(responses)
         self.requests = []
-        self.beta = NS(messages=NS(create=self._create))
+        self.messages = NS(create=self._create)
 
     def _create(self, **kw):
         # snapshot messages: the agent keeps appending to the same list
@@ -65,9 +65,10 @@ def test_request_uses_model_tools_and_fallbacks():
     h, _, _ = hooks()
     Agent(client, FakeExecutor(), h).run("x")
     req = client.requests[0]
-    assert req["model"] == "claude-opus-5-5"
+    assert req["model"] == "claude-haiku-5-5"
     assert {"type": "computer_toolset_20260801"} in req["tools"]
-    assert req["fallbacks"] == "default"
+    assert req["output_config"] == {"effort": "medium"}
+    assert "fallbacks" not in req and "betas" not in req
     assert "tool_choice" not in req and "temperature" not in req
 
 

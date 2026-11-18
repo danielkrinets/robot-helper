@@ -13,7 +13,8 @@ from robot_helper.core.prompt import SYSTEM_PROMPT
 from robot_helper.core.texts import T
 from robot_helper.core.tools import TOOLS
 
-MODEL = "claude-opus-5-5"
+MODEL = "claude-haiku-5-5"
+EFFORT = "medium"
 MAX_STEPS = 40
 MAX_IMAGES = 90  # the API accepts at most 100 images per request
 HALT_TEXT = "Not executed: an earlier computer action in this turn failed."
@@ -76,9 +77,9 @@ class Agent:
                 return self._finish(State.STOPPED, T["stopped"])
             self.hooks.on_state(State.THINKING)
             try:
-                response = self.client.beta.messages.create(
+                response = self.client.messages.create(
                     model=self.model, max_tokens=16000, system=SYSTEM_PROMPT, tools=TOOLS,
-                    messages=messages, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+                    messages=messages, output_config={"effort": EFFORT})
             except anthropic.AuthenticationError:
                 return self._finish(State.ERROR, T["bad_key"])
             except anthropic.APIConnectionError:
