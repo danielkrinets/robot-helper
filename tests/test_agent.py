@@ -72,12 +72,14 @@ def test_request_uses_model_tools_and_fallbacks():
     assert "tool_choice" not in req and "temperature" not in req
 
 
-def test_first_message_includes_screenshot():
-    client = FakeClient(resp(text("ok"), stop="end_turn"))
-    h, _, _ = hooks()
-    Agent(client, FakeExecutor(), h).run("x")
+def test_question_gets_text_answer_without_touching_screen():
+    client = FakeClient(resp(text("Сейчас 15 градусов."), stop="end_turn"))
+    ex = FakeExecutor()
+    h, said, states = hooks()
+    assert Agent(client, ex, h).run("Какая погода?") == State.DONE
     content = client.requests[0]["messages"][0]["content"]
-    assert [c["type"] for c in content] == ["text", "image"]
+    assert [c["type"] for c in content] == ["text"]  # no screenshot up front
+    assert ex.calls == [] and State.WORKING not in states
 
 
 def test_all_tool_results_in_one_user_message():
@@ -266,3 +268,15 @@ def test_image_budget_stops_before_api_limit():
     h, said, _ = hooks()
     assert Agent(client, FakeExecutor(), h, max_images=3).run("x") == State.STOPPED
     assert said[-1] == T["too_many_steps"]
+
+
+def test_working_state_reported_before_first_action():
+    order = []
+    ex = FakeExecutor()
+    orig = ex.perform
+    ex.perform = lambda n, a: order.append("perform") or orig(n, a)
+    client = FakeClient(resp(tool("left_click")), resp(stop="end_turn"))
+    h, _, _ = hooks()
+    h.on_state = lambda s: order.append(s)
+    Agent(client, ex, h).run("x")
+    assert order.index(State.WORKING) < order.index("perform")

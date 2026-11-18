@@ -9,6 +9,7 @@ from typing import Callable
 
 import anthropic
 
+from robot_helper.core.format import clean_text
 from robot_helper.core.prompt import SYSTEM_PROMPT
 from robot_helper.core.texts import T
 from robot_helper.core.tools import TOOLS
@@ -69,9 +70,9 @@ class Agent:
     def run(self, task: str) -> State:
         if self.stopped:
             return self._finish(State.STOPPED, T["stopped"])
-        messages: list[dict] = [{"role": "user", "content": [
-            {"type": "text", "text": task}, _image(self.executor.screenshot())]}]
-        self.images = 1
+        # no screenshot up front: a plain question should get a plain answer
+        messages: list[dict] = [{"role": "user", "content": [{"type": "text", "text": task}]}]
+        self.images = 0
         for _ in range(self.max_steps):
             if self.stopped:
                 return self._finish(State.STOPPED, T["stopped"])
@@ -91,8 +92,8 @@ class Agent:
                 return self._finish(State.ERROR, T["refused"])
             messages.append({"role": "assistant", "content": response.content})
             for block in response.content:
-                if block.type == "text" and block.text.strip():
-                    self.hooks.on_say(block.text.strip())
+                if block.type == "text" and clean_text(block.text):
+                    self.hooks.on_say(clean_text(block.text))
             if response.stop_reason == "max_tokens":
                 return self._finish(State.ERROR, T["try_again"])
 
