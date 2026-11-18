@@ -68,7 +68,8 @@ class App:
         self.services.watch_escape(self._on_global_escape)
         self.shell = tk.Canvas(root, bg=clear_bg(), highlightthickness=0)
         self.shell.pack(fill="both", expand=True)
-        needs_setup = config.get_api_key() is None or bool(self.services.missing_permissions())
+        # only the key is required up front; macOS permissions are asked for when the robot first needs them
+        needs_setup = config.get_api_key() is None
         self.set_mode("full" if needs_setup else "widget", setup=needs_setup)
         root.deiconify()
 
@@ -201,7 +202,7 @@ class App:
             check_row(perm_card, "Разрешения выданы").pack(anchor="w")
 
     def _after_setup(self):
-        ready = bool(config.get_api_key()) and not self.services.missing_permissions()
+        ready = bool(config.get_api_key())
         self.set_mode("widget" if ready else "full", setup=not ready)
 
     # --- chat -----------------------------------------------------------------------
@@ -302,6 +303,11 @@ class App:
 
     def on_state(self, state: State):
         """Agent thread. The first computer action shrinks the helper out of the robot's way."""
+        if state == State.WORKING and not self._working and self.services.missing_permissions():
+            self.agent.stop()  # cannot see or move without macOS permissions; ask for them now
+            self.last_said = "Чтобы я мог работать на компьютере, нужно один раз дать разрешения."
+            self.root.after(0, lambda: self.set_mode("full", setup=True))
+            return
         if state == State.WORKING and not self._working:
             self._working = True
             done = threading.Event()
@@ -331,7 +337,8 @@ class App:
             self.stop_win.withdraw()
             self.set_mode(self._mode_before if self._mode_before != "mini" else "widget")
         final = self.last_said or {State.DONE: T["done"], State.STOPPED: T["stopped"]}.get(state, T["try_again"])
-        if state == State.STOPPED and self.last_said not in (T["stopped"], T["too_many_steps"]):
+        if state == State.STOPPED and self.last_said not in (T["stopped"], T["too_many_steps"]) \
+                and not self.last_said.startswith("Чтобы я мог"):
             final = T["stopped"]
         self._post(final, "robot")
         if self._working:
