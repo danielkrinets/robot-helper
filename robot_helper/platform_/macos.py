@@ -5,7 +5,6 @@ import ctypes
 import subprocess
 from typing import Callable
 
-from robot_helper.platform_.base import watch_escape_with_pynput
 
 AX = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
 CG = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
@@ -78,4 +77,15 @@ class MacServices:
         pass  # overlay avoids covering targets instead (edge strips + offset badge)
 
     def watch_escape(self, callback: Callable[[], None]) -> None:
-        watch_escape_with_pynput(callback)
+        # pynput's listener calls TSM APIs off the main thread and macOS kills the app for it,
+        # so use an AppKit global monitor instead (runs on the main thread inside Tk's event loop).
+        try:
+            from AppKit import NSEvent, NSEventMaskKeyDown
+
+            def handler(event):
+                if event.keyCode() == 53:  # Esc
+                    callback()
+
+            self._esc_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(NSEventMaskKeyDown, handler)
+        except Exception:
+            self._esc_monitor = None  # STOP button and the in-app Esc still work

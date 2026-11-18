@@ -69,3 +69,10 @@ def test_mac_panes_cover_all_permissions():
 
 def test_windows_open_settings_is_noop():
     WindowsServices().open_settings("Запись экрана")
+
+
+def test_mac_watch_escape_never_uses_pynput(monkeypatch):
+    import robot_helper.platform_.macos as mac
+    monkeypatch.setattr(mac, "watch_escape_with_pynput",
+                        lambda cb: (_ for _ in ()).throw(AssertionError("pynput crashes on macOS")), raising=False)
+    MacServices().watch_escape(lambda: None)  # must not touch pynput
