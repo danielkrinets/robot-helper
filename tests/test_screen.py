@@ -6,7 +6,7 @@ def test_no_downscale_when_small():
 
 
 def test_downscale_4k():
-    assert fit_scale(3840, 2160) == 1568 / 3840
+    assert fit_scale(3840, 2160) == (1_150_000 / (3840 * 2160)) ** 0.5
 
 
 def test_portrait_uses_long_edge():
