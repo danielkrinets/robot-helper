@@ -15,7 +15,7 @@ jobs:
           python-version: "3.12"
       - run: pip install anthropic pyautogui pynput pillow keyring pyperclip pytest pyinstaller
       - run: pytest -q
-      - run: pyinstaller --noconfirm --windowed --name RobotHelper --collect-all pynput --collect-submodules keyring.backends --add-data "robot_helper/assets:robot_helper/assets" --icon robot_helper/assets/${{ runner.os == 'Windows' && 'icon.ico' || 'icon.icns' }} packaging/launch.py
+      - run: pyinstaller --noconfirm --windowed --name RobotHelper --paths . --collect-all robot_helper --collect-all pynput --collect-submodules keyring.backends --icon robot_helper/assets/${{ runner.os == 'Windows' && 'icon.ico' || 'icon.icns' }} packaging/launch.py
       - uses: actions/upload-artifact@v4
         with:
           name: RobotHelper-${{ matrix.os }}
