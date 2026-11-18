@@ -36,11 +36,12 @@ def clear_bg() -> str:
 def make_floating(win: tk.Misc) -> None:
     if sys.platform == "darwin":
         # borderless panel without the title bar; overrideredirect alone keeps the frame on Tk 9
+        # "plain" = borderless window that can still become the key window, so typing works.
+        # overrideredirect would also remove the frame, but such windows never get keyboard focus.
         try:
-            win.tk.call("::tk::unsupported::MacWindowStyle", "style", win._w, "plain", "none")
+            win.attributes("-stylemask", ())  # borderless NSWindow that can still take typing
         except tk.TclError:
-            pass
-        win.overrideredirect(True)
+            win.overrideredirect(True)
     else:
         win.overrideredirect(True)
     win.attributes("-topmost", True)
