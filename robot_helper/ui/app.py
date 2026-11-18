@@ -21,35 +21,106 @@ BLUE, RED, GREEN = "#0A84FF", "#FF453A", "#30D158"
 FAMILY = ".AppleSystemUIFont" if sys.platform == "darwin" else "Segoe UI"
 
 
+ORANGE = "#FF9F0A"
+
+
 def font(size: int, weight: str = "normal"):
     return (FAMILY, size, weight)
+
+
+def rounded(canvas: tk.Canvas, x0, y0, x1, y1, r, color):
+    r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
+    pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1,
+           x1 - r, y1, x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
+    return canvas.create_polygon(pts, smooth=True, fill=color, outline=color)
+
+
+def draw_icon(c: tk.Canvas, name: str, cx: float, cy: float, color: str) -> None:
+    """Simple line icons drawn with the canvas (no emoji)."""
+    if name == "mic":
+        rounded(c, cx - 6, cy - 14, cx + 6, cy + 4, 6, color)
+        c.create_arc(cx - 11, cy - 10, cx + 11, cy + 10, start=200, extent=140, style="arc",
+                     outline=color, width=2.5)
+        c.create_line(cx, cy + 10, cx, cy + 15, fill=color, width=2.5, capstyle="round")
+    elif name == "send":
+        c.create_line(cx, cy + 10, cx, cy - 9, fill=color, width=3, capstyle="round")
+        c.create_line(cx - 8, cy - 2, cx, cy - 10, cx + 8, cy - 2, fill=color, width=3,
+                      capstyle="round", joinstyle="round")
+    elif name == "stop":
+        rounded(c, cx - 9, cy - 9, cx + 9, cy + 9, 4, color)
+    elif name == "check":
+        c.create_line(cx - 7, cy, cx - 2, cy + 5, cx + 8, cy - 6, fill=color, width=3,
+                      capstyle="round", joinstyle="round")
+
+
+def shade(color: str, k: float) -> str:
+    rgb = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(min(255, int(v * k)) for v in rgb)
 
 
 class Pill(tk.Canvas):
     """Rounded, flat button drawn on a canvas (tk.Button ignores colors on macOS)."""
 
-    def __init__(self, parent, text, color, command, w=160, h=52, size=18, fg="white"):
+    def __init__(self, parent, text, color, command, w=160, h=52, size=18, fg="white", icon=None):
         super().__init__(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0, cursor="hand2")
-        self.color, self.command = color, command
-        r = h // 2
-        self.shape = [
-            self.create_oval(0, 0, h, h, fill=color, outline=color),
-            self.create_oval(w - h, 0, w, h, fill=color, outline=color),
-            self.create_rectangle(r, 0, w - r, h, fill=color, outline=color),
-        ]
-        self.label = self.create_text(w // 2, h // 2, text=text, fill=fg, font=font(size, "bold"))
-        self.bind("<Button-1>", lambda e: command())
-        self.bind("<Enter>", lambda e: self._tint(0.85))
+        self.color, self.command, self.w, self.h = color, command, w, h
+        self.shape = [rounded(self, 0, 0, w, h, h // 2, color)]
+        if icon:
+            draw_icon(self, icon, w / 2, h / 2, fg)
+            self.label = None
+        else:
+            self.label = self.create_text(w // 2, h // 2, text=text, fill=fg, font=font(size, "bold"))
+        # feedback on press (instant), action on release only if the pointer is still inside
+        self.bind("<ButtonPress-1>", lambda e: self._tint(0.75))
+        self.bind("<ButtonRelease-1>", self._release)
+        self.bind("<Enter>", lambda e: self._tint(1.12))
         self.bind("<Leave>", lambda e: self._tint(1.0))
 
+    def _release(self, e):
+        self._tint(1.0)
+        if 0 <= e.x <= self.w and 0 <= e.y <= self.h:
+            self.command()
+
     def _tint(self, k: float):
-        rgb = [int(self.color[i:i + 2], 16) for i in (1, 3, 5)]
-        c = "#%02x%02x%02x" % tuple(int(v * k) for v in rgb)
+        c = shade(self.color, k)
         for item in self.shape:
             self.itemconfig(item, fill=c, outline=c)
 
     def set_text(self, text: str):
         self.itemconfig(self.label, text=text)
+
+
+def card(parent, pad=20, radius=28, color=None) -> tk.Frame:
+    """A rounded container; returns the inner frame to pack content into."""
+    color = color or CARD
+    outer = tk.Canvas(parent, bg=parent["bg"], highlightthickness=0, height=10)
+    outer.pack(fill="x", pady=8)
+    inner = tk.Frame(outer, bg=color)
+    win = outer.create_window(pad, pad, window=inner, anchor="nw")
+
+    def layout(_=None):
+        outer.update_idletasks()
+        w = outer.winfo_width()
+        h = inner.winfo_reqheight() + 2 * pad
+        outer.configure(height=h)
+        outer.itemconfigure(win, width=max(10, w - 2 * pad))
+        outer.delete("bg")
+        item = rounded(outer, 0, 0, w, h, radius, color)
+        outer.itemconfigure(item, tags="bg")
+        outer.tag_lower("bg")
+
+    outer.bind("<Configure>", layout)
+    inner.bind("<Configure>", layout)
+    return inner
+
+
+def check_row(parent, text: str):
+    row = tk.Frame(parent, bg=parent["bg"])
+    c = tk.Canvas(row, width=24, height=24, bg=parent["bg"], highlightthickness=0)
+    draw_icon(c, "check", 12, 12, GREEN)
+    c.pack(side="left", padx=(0, 10))
+    tk.Label(row, text=text, bg=parent["bg"], fg=GREEN, font=font(18)).pack(side="left")
+    return row
 
 
 class Chat(tk.Frame):
@@ -73,9 +144,15 @@ class Chat(tk.Frame):
         row.pack(fill="x", padx=20, pady=6)
         mine = who == "me"
         color = {"me": BLUE, "robot": CARD, "note": BG}[who]
-        bubble = tk.Label(row, text=text, bg=color, fg=MUTED if who == "note" else FG, font=font(20),
-                          wraplength=560, justify="left", padx=16, pady=10)
-        bubble.pack(side="right" if mine else "left", anchor="e" if mine else "w")
+        c = tk.Canvas(row, bg=BG, highlightthickness=0)
+        t = c.create_text(16, 10, text=text, anchor="nw", width=540, font=font(19),
+                          fill=MUTED if who == "note" else FG)
+        x0, y0, x1, y1 = c.bbox(t)
+        w, h = x1 + 16, y1 + 10
+        c.configure(width=w, height=h)
+        if who != "note":
+            c.tag_lower(rounded(c, 0, 0, w, h, 24, color))
+        c.pack(side="right" if mine else "left")
         self.update_idletasks()
         self.canvas.yview_moveto(1.0)
 
@@ -122,15 +199,15 @@ class App:
         self._label(box, "Настройка", 30, weight="bold").pack(anchor="w")
         self._label(box, "Это делает тот, кто устанавливает помощника.", 16, MUTED).pack(anchor="w", pady=(4, 24))
 
-        key_card = tk.Frame(box, bg=CARD, padx=20, pady=16)
-        key_card.pack(fill="x", pady=8)
+        key_card = card(box)
         if config.get_api_key():
-            self._label(key_card, "✓  Ключ Claude API сохранён", 18, GREEN).pack(anchor="w")
+            check_row(key_card, "Ключ Claude API сохранён").pack(anchor="w")
         else:
             self._label(key_card, "Ключ Claude API", 18, weight="bold").pack(anchor="w")
-            entry = tk.Entry(key_card, show="•", font=font(18), bg=FIELD, fg=FG, insertbackground=FG,
+            field = card(key_card, pad=12, radius=20, color=FIELD)
+            entry = tk.Entry(field, show="•", font=font(18), bg=FIELD, fg=FG, insertbackground=BLUE,
                              relief="flat", highlightthickness=0)
-            entry.pack(fill="x", pady=10, ipady=8)
+            entry.pack(fill="x")
 
             def save():
                 if entry.get().strip():
@@ -142,19 +219,18 @@ class App:
             entry.focus_set()
 
         missing = self.services.missing_permissions()
-        perm_card = tk.Frame(box, bg=CARD, padx=20, pady=16)
-        perm_card.pack(fill="x", pady=8)
+        perm_card = card(box)
         if missing:
             self._label(perm_card, "Нужны разрешения macOS", 18, weight="bold").pack(anchor="w")
-            self._label(perm_card, "Откройте «Системные настройки → Конфиденциальность и безопасность» "
+            self._label(perm_card, "Откройте Системные настройки, раздел «Конфиденциальность и безопасность», "
                         "и включите эту программу в разделах:", 16, MUTED, wraplength=620).pack(anchor="w", pady=(6, 8))
             for item in missing:
-                self._label(perm_card, "•  " + item.split("→")[-1].strip(), 17).pack(anchor="w")
+                self._label(perm_card, item.split("→")[-1].strip(), 17).pack(anchor="w", padx=(12, 0))
             self._label(perm_card, "А также «Мониторинг ввода» — для клавиши Esc.\n"
                         "После этого закройте программу и откройте снова.", 15, MUTED).pack(anchor="w", pady=(8, 10))
             Pill(perm_card, "Проверить снова", FIELD, self._after_setup, w=200, h=44, size=16).pack(anchor="w")
         else:
-            self._label(perm_card, "✓  Разрешения выданы", 18, GREEN).pack(anchor="w")
+            check_row(perm_card, "Разрешения выданы").pack(anchor="w")
 
     def _after_setup(self):
         if config.get_api_key() and not self.services.missing_permissions():
@@ -166,9 +242,14 @@ class App:
         self._clear()
         header = tk.Frame(self.body, bg=BG)
         header.pack(fill="x", padx=24, pady=(18, 8))
-        self._label(header, "🤖  Робот-помощник", 22, weight="bold").pack(side="left")
-        self.status = self._label(header, "Готов помочь", 15, MUTED)
-        self.status.pack(side="right")
+        self._label(header, "Робот-помощник", 22, weight="bold").pack(side="left")
+        status = tk.Frame(header, bg=BG)
+        status.pack(side="right")
+        self.dot = tk.Canvas(status, width=10, height=10, bg=BG, highlightthickness=0)
+        self.dot_item = self.dot.create_oval(1, 1, 9, 9, fill=GREEN, outline=GREEN)
+        self.dot.pack(side="left", padx=(0, 8))
+        self.status = self._label(status, "Готов", 15, MUTED)
+        self.status.pack(side="left")
         tk.Frame(self.body, bg=CARD, height=1).pack(fill="x")
 
         self.chat = Chat(self.body)
@@ -180,16 +261,45 @@ class App:
 
         bar = tk.Frame(self.body, bg=BG)
         bar.pack(fill="x", padx=20, pady=16)
-        field = tk.Frame(bar, bg=CARD, padx=14, pady=8)
+        field = tk.Canvas(bar, bg=BG, highlightthickness=0, height=64)
         field.pack(side="left", fill="x", expand=True)
-        self.entry = tk.Text(field, font=font(20), height=2, bg=CARD, fg=FG, insertbackground=FG,
-                             relief="flat", highlightthickness=0, wrap="word")
-        self.entry.pack(fill="x")
+        self.entry = tk.Text(field, font=font(19), height=2, bg=CARD, fg=FG, insertbackground=BLUE,
+                             relief="flat", highlightthickness=0, wrap="word", padx=4, pady=4)
+        holder = field.create_window(16, 8, window=self.entry, anchor="nw")
+
+        def layout(e):
+            field.delete("bg")
+            field.tag_lower(rounded(field, 0, 0, e.width, e.height, e.height // 2, CARD))
+            field.addtag_withtag("bg", "all")
+            field.dtag(holder, "bg")
+            field.itemconfigure(holder, width=e.width - 32, height=e.height - 16)
+
+        field.bind("<Configure>", layout)
+        self._placeholder(self.entry, "Напишите, что сделать…")
         self.entry.bind("<Return>", lambda e: (self.submit(), "break")[1])
         self.entry.bind("<Shift-Return>", lambda e: None)
-        Pill(bar, "🎤", FIELD, self.dictate, w=56, h=56, size=22).pack(side="left", padx=(12, 0))
-        Pill(bar, "↑", BLUE, self.submit, w=56, h=56, size=24).pack(side="left", padx=(8, 0))
+        Pill(bar, "", FIELD, self.dictate, w=56, h=56, icon="mic").pack(side="left", padx=(12, 0))
+        Pill(bar, "", BLUE, self.submit, w=56, h=56, icon="send").pack(side="left", padx=(8, 0))
         self.entry.focus_set()
+
+    @staticmethod
+    def _placeholder(entry: tk.Text, hint: str):
+        def show(_=None):
+            if not entry.get("1.0", "end").strip():
+                entry.delete("1.0", "end")
+                entry.insert("1.0", hint)
+                entry.config(fg=MUTED)
+                entry.is_hint = True
+
+        def hide(_=None):
+            if getattr(entry, "is_hint", False):
+                entry.delete("1.0", "end")
+                entry.config(fg=FG)
+                entry.is_hint = False
+
+        entry.bind("<FocusIn>", hide, add="+")
+        entry.bind("<FocusOut>", show, add="+")
+        show()
 
     def _post(self, text: str, who: str):
         """Add a message to history and to the chat if it is on screen. Main thread only."""
@@ -203,7 +313,7 @@ class App:
         win.attributes("-topmost", True)
         w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         win.geometry(f"240x96+{w - 270}+{h - 160}")
-        Pill(win, "■  " + T["stop"], RED, self.stop, w=240, h=96, size=28).pack()
+        Pill(win, T["stop"], RED, self.stop, w=240, h=96, size=28).pack()
         win.withdraw()
         return win
 
@@ -214,6 +324,8 @@ class App:
         self.services.start_dictation()
 
     def submit(self):
+        if getattr(self.entry, "is_hint", False):
+            return
         task = self.entry.get("1.0", "end").strip()
         if not task or (self.agent and not self.agent.stopped and self._running):
             return
@@ -231,7 +343,8 @@ class App:
                                           on_pointer=self.overlay.move_hand, stop_event=self.agent._stop)
         self.agent.executor = self.executor
         self._running = True
-        self.status.config(text="Работаю…")
+        self.last_said = ""
+        self.set_status("Работаю", BLUE)
         self.root.update()
         self.root.withdraw()  # the robot needs the screen; the chat comes back when it finishes
         self.overlay.show(T["working"])
@@ -245,7 +358,7 @@ class App:
             state = self.agent.run(task)
         except Exception:  # never show a traceback to the person
             state = State.ERROR
-            self.root.after(0, lambda: self._post(T["try_again"], "robot"))
+            self.last_said = T["try_again"]
         self.root.after(0, lambda: self._finished(state))
 
     def _finished(self, state: State):
@@ -254,9 +367,13 @@ class App:
         self.stop_win.withdraw()
         self.root.deiconify()
         self.root.lift()
-        self.status.config(text={State.DONE: "Готово", State.STOPPED: "Остановлен"}.get(state, "Готов помочь"))
-        if state == State.DONE and (not self.history or self.history[-1][1] != "robot"):
-            self._post(T["done"], "robot")
+        self.set_status(*{State.DONE: ("Готово", GREEN), State.STOPPED: ("Остановлен", ORANGE),
+                          State.ERROR: ("Не получилось", RED)}.get(state, ("Готов", GREEN)))
+        final = self.last_said or {State.DONE: T["done"], State.STOPPED: T["stopped"]}.get(state, T["try_again"])
+        if state == State.STOPPED and self.last_said not in (T["stopped"], T["too_many_steps"]):
+            final = T["stopped"]
+        self._post(final, "robot")
+        self.services.speak(final)
         self.entry.focus_set()
 
     def _on_global_escape(self):
@@ -273,9 +390,9 @@ class App:
 
     # --- hooks (called from the agent thread) --------------------------------------
     def say(self, text: str):
-        self.root.after(0, lambda: self._post(text, "robot"))
+        # step narration only goes to the overlay caption; the chat gets the final answer
+        self.last_said = text
         self.overlay.set_label(text)
-        self.services.speak(text)
 
     def _resolve(self, value):
         if self._pending:
@@ -332,3 +449,11 @@ def main():
     if "--smoke" in sys.argv:  # build the UI and exit: used by CI and manual checks
         root.after(1500, root.destroy)
     root.mainloop()
+
+
+def _set_status(self, text: str, color: str) -> None:
+    self.status.config(text=text)
+    self.dot.itemconfig(self.dot_item, fill=color, outline=color)
+
+
+App.set_status = _set_status

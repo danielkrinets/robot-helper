@@ -39,7 +39,7 @@ class MacServices:
         pass  # the dictation shortcut is user-configurable on macOS; the hint explains it
 
     def dictation_hint(self) -> str:
-        return "Нажмите два раза клавишу Fn (🌐) и говорите."
+        return "Нажмите два раза клавишу Fn (глобус) и говорите."
 
     def make_click_through(self, window) -> None:
         pass  # overlay avoids covering targets instead (edge strips + offset badge)

@@ -23,10 +23,13 @@ class Overlay:
         self.strips = [self._window(g, ORANGE) for g in geoms]
         self.caption = self._window(f"+{w // 2 - 300}+{EDGE}", ORANGE)
         self.caption_label = tk.Label(self.caption, text="", bg=ORANGE, fg="white",
-                                      font=("Helvetica", 26, "bold"), padx=24, pady=8)
+                                      font=(".AppleSystemUIFont" if __import__("sys").platform == "darwin" else "Segoe UI", 24, "bold"), padx=24, pady=8)
         self.caption_label.pack()
-        self.badge = self._window("+0+0", "white")
-        tk.Label(self.badge, text="🤖", font=("Helvetica", 40), bg="white").pack()
+        self.badge = self._window("+0+0", ORANGE)
+        dot = tk.Canvas(self.badge, width=36, height=36, bg=ORANGE, highlightthickness=0)
+        dot.create_oval(4, 4, 32, 32, fill="white", outline="white")
+        dot.create_oval(11, 11, 25, 25, fill=ORANGE, outline=ORANGE)
+        dot.pack()
         self.windows = [*self.strips, self.caption, self.badge]
         self._visible = False
         self._hide_all()
