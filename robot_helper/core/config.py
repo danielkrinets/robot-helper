@@ -17,3 +17,30 @@ def get_api_key() -> str | None:
 
 def set_api_key(key: str) -> None:
     keyring.set_password(SERVICE, USER, key.strip())
+
+
+# Non-secret UI preferences (dock position). Never store the API key here.
+import json
+import pathlib
+
+PREFS = pathlib.Path.home() / ".robot-helper.json"
+
+
+def _load() -> dict:
+    try:
+        return json.loads(PREFS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def get_pref(name: str, default):
+    return _load().get(name, default)
+
+
+def set_pref(name: str, value) -> None:
+    data = _load()
+    data[name] = value
+    try:
+        PREFS.write_text(json.dumps(data))
+    except OSError:
+        pass

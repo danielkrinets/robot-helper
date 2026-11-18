@@ -53,3 +53,17 @@ def test_texts_have_required_keys():
                 "stopped", "ask_yes", "ask_no", "stop", "no_key", "bad_key", "no_network",
                 "try_again", "refused"}
     assert required <= set(texts.T)
+
+
+def test_prefs_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PREFS", tmp_path / "prefs.json")
+    assert config.get_pref("dock", "right") == "right"
+    config.set_pref("dock", "left")
+    assert config.get_pref("dock", "right") == "left"
+
+
+def test_prefs_broken_file_gives_default(tmp_path, monkeypatch):
+    bad = tmp_path / "prefs.json"
+    bad.write_text("{not json")
+    monkeypatch.setattr(config, "PREFS", bad)
+    assert config.get_pref("dock", "right") == "right"
