@@ -18,6 +18,7 @@ from robot_helper.ui.overlay import Overlay
 BG, CARD, FIELD = "#1C1C1E", "#2C2C2E", "#3A3A3C"
 FG, MUTED = "#F2F2F7", "#8E8E93"
 BLUE, RED, GREEN = "#0A84FF", "#FF453A", "#30D158"
+ASSETS = __import__("pathlib").Path(__file__).resolve().parent.parent / "assets"
 FAMILY = ".AppleSystemUIFont" if sys.platform == "darwin" else "Segoe UI"
 
 
@@ -167,6 +168,12 @@ class App:
         self.history: list[tuple[str, str]] = []
         root.title("Робот-помощник")
         root.configure(bg=BG)
+        try:
+            self.logo_big = tk.PhotoImage(file=str(ASSETS / "icon.png"))
+            self.logo = tk.PhotoImage(file=str(ASSETS / "icon-64.png")).subsample(2, 2)
+            root.iconphoto(True, self.logo_big)
+        except tk.TclError:
+            self.logo = None
         root.geometry("820x760")
         root.minsize(620, 520)
         root.bind("<Escape>", lambda e: self.stop())
@@ -242,6 +249,8 @@ class App:
         self._clear()
         header = tk.Frame(self.body, bg=BG)
         header.pack(fill="x", padx=24, pady=(18, 8))
+        if self.logo is not None:
+            tk.Label(header, image=self.logo, bg=BG).pack(side="left", padx=(0, 10))
         self._label(header, "Робот-помощник", 22, weight="bold").pack(side="left")
         status = tk.Frame(header, bg=BG)
         status.pack(side="right")
