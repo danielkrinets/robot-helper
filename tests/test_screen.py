@@ -1,0 +1,25 @@
+from robot_helper.core.screen import fit_scale, to_screen
+
+
+def test_no_downscale_when_small():
+    assert fit_scale(1280, 720) == 1.0
+
+
+def test_downscale_4k():
+    assert fit_scale(3840, 2160) == 1568 / 3840
+
+
+def test_portrait_uses_long_edge():
+    assert fit_scale(1200, 3136) == 0.5
+
+
+def test_round_trip_within_one_px():
+    assert to_screen(100, 50, 0.5) == (200, 100)
+
+
+def test_rounds_to_nearest():
+    assert to_screen(1, 1, 0.3) == (3, 3)
+
+
+def test_scale_never_above_one():
+    assert fit_scale(10, 10) <= 1.0
