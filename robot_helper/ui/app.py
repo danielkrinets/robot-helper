@@ -338,7 +338,8 @@ class App:
         self._running, self.last_said, self._working = True, "", False
         self._mode_before = self.mode
         self.set_status("Думаю", BLUE)
-        threading.Thread(target=self._run, args=(task,), daemon=True).start()
+        context = [x for x in self.history[:-1] if x[1] in ("me", "robot")][-20:]
+        threading.Thread(target=self._run, args=(task, context), daemon=True).start()
 
     def on_state(self, state: State):
         """Agent thread. The first computer action shrinks the helper out of the robot's way."""
@@ -363,9 +364,9 @@ class App:
         self.root.after(0, enter)
         done.wait(timeout=2)
 
-    def _run(self, task: str):
+    def _run(self, task: str, context=None):
         try:
-            state = self.agent.run(task)
+            state = self.agent.run(task, history=context)
         except Exception:  # never show a traceback to the person
             state = State.ERROR
             self.last_said = T["try_again"]

@@ -280,3 +280,27 @@ def test_working_state_reported_before_first_action():
     h.on_state = lambda s: order.append(s)
     Agent(client, ex, h).run("x")
     assert order.index(State.WORKING) < order.index("perform")
+
+
+def test_previous_chat_is_sent_as_context():
+    client = FakeClient(resp(text("Открываю."), stop="end_turn"))
+    h, _, _ = hooks()
+    Agent(client, FakeExecutor(), h).run("гугл", history=[("ютуб", "me"), ("Какой браузер?", "robot")])
+    msgs = client.requests[0]["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
+    assert msgs[0]["content"][0]["text"] == "ютуб" and msgs[-1]["content"][0]["text"] == "гугл"
+
+
+def test_history_merges_consecutive_roles():
+    client = FakeClient(resp(text("ok"), stop="end_turn"))
+    h, _, _ = hooks()
+    Agent(client, FakeExecutor(), h).run("три", history=[("раз", "me"), ("два", "me")])
+    msgs = client.requests[0]["messages"]
+    assert [m["role"] for m in msgs] == ["user"]
+
+
+def test_system_prompt_names_the_os():
+    client = FakeClient(resp(text("ok"), stop="end_turn"))
+    h, _, _ = hooks()
+    Agent(client, FakeExecutor(), h).run("x")
+    assert "macOS" in client.requests[0]["system"] or "Windows" in client.requests[0]["system"]

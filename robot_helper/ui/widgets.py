@@ -21,11 +21,27 @@ def shade(color: str, k: float) -> str:
     return "#%02x%02x%02x" % tuple(min(255, int(v * k)) for v in rgb)
 
 
-def rounded(canvas: tk.Canvas, x0, y0, x1, y1, r, color, outline=None, **kw):
-    r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
-    pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1,
-           x1 - r, y1, x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
-    return canvas.create_polygon(pts, smooth=True, fill=color, outline=outline or color, **kw)
+_ids = iter(range(1, 10**9))
+
+
+def rounded(canvas: tk.Canvas, x0, y0, x1, y1, r, color, outline=None, tags=None, **kw):
+    """Rounded rectangle. Filled shapes are built from circles + rectangles: smooth polygons
+    leave jagged corners in Tk. Returns a tag naming all parts (usable with itemconfig/tag_lower)."""
+    r = max(0, min(r, (x1 - x0) / 2, (y1 - y0) / 2))
+    tag = f"rr{next(_ids)}"
+    all_tags = (tag,) + ((tags,) if isinstance(tags, str) else tuple(tags or ()))
+    if not color:  # outline only (icons): smooth polygon is fine at this size
+        pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1,
+               x1 - r, y1, x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
+        canvas.create_polygon(pts, smooth=True, fill="", outline=outline or "", tags=all_tags, **kw)
+        return tag
+    d = 2 * r
+    opts = dict(fill=color, outline=color, tags=all_tags)
+    for cx, cy in ((x0, y0), (x1 - d, y0), (x0, y1 - d), (x1 - d, y1 - d)):
+        canvas.create_oval(cx, cy, cx + d, cy + d, **opts)
+    canvas.create_rectangle(x0 + r, y0, x1 - r, y1, **opts)
+    canvas.create_rectangle(x0, y0 + r, x1, y1 - r, **opts)
+    return tag
 
 
 def clear_bg() -> str:

@@ -14,6 +14,12 @@ from robot_helper.core.prompt import SYSTEM_PROMPT
 from robot_helper.core.texts import T
 from robot_helper.core.tools import TOOLS
 
+import sys as _sys
+
+OS_HINT = ("\n\nКомпьютер: macOS. Программы и сайты открывай сам: Spotlight (cmd+space), набери название, Enter. "
+           "Сайт открывай в браузере по умолчанию." if _sys.platform == "darwin" else
+           "\n\nКомпьютер: Windows. Программы открывай сам: клавиша win, набери название, Enter. "
+           "Сайт открывай в браузере по умолчанию.")
 MODEL = "claude-haiku-5-5"
 EFFORT = "medium"
 MAX_STEPS = 40
@@ -67,11 +73,21 @@ class Agent:
         self.hooks.on_state(state)
         return state
 
-    def run(self, task: str) -> State:
+    def run(self, task: str, history: list[tuple[str, str]] | None = None) -> State:
         if self.stopped:
             return self._finish(State.STOPPED, T["stopped"])
         # no screenshot up front: a plain question should get a plain answer
-        messages: list[dict] = [{"role": "user", "content": [{"type": "text", "text": task}]}]
+        messages: list[dict] = []
+        for text_, who in [*(history or []), (task, "me")]:
+            if who not in ("me", "robot") or not text_.strip():
+                continue
+            role = "user" if who == "me" else "assistant"
+            if messages and messages[-1]["role"] == role:
+                messages[-1]["content"][0]["text"] += "\n" + text_
+            else:
+                messages.append({"role": role, "content": [{"type": "text", "text": text_}]})
+        while messages and messages[0]["role"] != "user":
+            messages.pop(0)
         self.images = 0
         for _ in range(self.max_steps):
             if self.stopped:
@@ -79,7 +95,7 @@ class Agent:
             self.hooks.on_state(State.THINKING)
             try:
                 response = self.client.messages.create(
-                    model=self.model, max_tokens=16000, system=SYSTEM_PROMPT, tools=TOOLS,
+                    model=self.model, max_tokens=16000, system=SYSTEM_PROMPT + OS_HINT, tools=TOOLS,
                     messages=messages, output_config={"effort": EFFORT})
             except anthropic.AuthenticationError:
                 return self._finish(State.ERROR, T["bad_key"])
