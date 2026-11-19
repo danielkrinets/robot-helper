@@ -68,10 +68,15 @@ class MacServices:
         return None  # v1: system dictation into the text field (see voice-spike.md)
 
     def start_dictation(self) -> None:
-        pass  # the dictation shortcut is user-configurable on macOS; the hint explains it
+        # ask AppKit to start system dictation in the focused text field (same as Edit > Start Dictation)
+        try:
+            from AppKit import NSApp
+            NSApp().sendAction_to_from_("startDictation:", None, None)
+        except Exception:
+            pass  # the hint still tells the person how to start it by hand
 
     def dictation_hint(self) -> str:
-        return "Нажмите два раза клавишу Fn (глобус) и говорите."
+        return "Говорите. Если не слушает, нажмите два раза клавишу Fn (глобус)."
 
     def make_click_through(self, window) -> None:
         pass  # overlay avoids covering targets instead (edge strips + offset badge)

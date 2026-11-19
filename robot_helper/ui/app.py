@@ -308,7 +308,7 @@ class App:
     def dictate(self):
         self.entry.focus_force()
         self._post(self.services.dictation_hint(), "note")
-        self.services.start_dictation()
+        self.root.after(150, self.services.start_dictation)  # after the field really has focus
 
     def submit(self, task: str | None = None):
         if self._running:

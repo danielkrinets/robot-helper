@@ -1,6 +1,7 @@
 """Small drawing toolkit: Apple dark colors, rounded shapes, line icons, pill buttons, chat bubbles."""
 from __future__ import annotations
 
+import contextlib
 import sys
 import tkinter as tk
 
@@ -187,11 +188,26 @@ class Chat(tk.Frame):
         self.canvas.pack(fill="both", expand=True)
         self.inner.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.window, width=e.width))
+        self.canvas.configure(yscrollincrement=8)
         self.canvas.bind_all("<MouseWheel>", self._wheel)
+        self.canvas.bind_all("<Button-4>", lambda e: self._scroll(-3))  # X11
+        self.canvas.bind_all("<Button-5>", lambda e: self._scroll(3))
+        with contextlib.suppress(tk.TclError):  # Tk 9 sends trackpad scrolling as its own event
+            self.canvas.bind_all("<TouchpadScroll>", self._touchpad)
+
+    def _scroll(self, units: int):
+        with contextlib.suppress(tk.TclError):
+            if self.canvas.winfo_exists() and units:
+                self.canvas.yview_scroll(units, "units")
 
     def _wheel(self, e):
-        if self.canvas.winfo_exists():
-            self.canvas.yview_scroll(-1 if e.delta > 0 else 1, "units")
+        step = -e.delta if abs(e.delta) < 20 else -e.delta // 40  # mac: small deltas, Windows: 120s
+        self._scroll(int(step) or (-1 if e.delta > 0 else 1))
+
+    def _touchpad(self, e):
+        with contextlib.suppress(tk.TclError):
+            _, dy = self.canvas.tk.splitlist(self.canvas.tk.call("tk::PreciseScrollDeltas", e.delta))
+            self._scroll(-int(float(dy) / 4))
 
     def add(self, text: str, who: str = "robot"):
         row = tk.Frame(self.inner, bg=BG)
