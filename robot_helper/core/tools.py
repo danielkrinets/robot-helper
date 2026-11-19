@@ -17,6 +17,7 @@ def _custom(name: str, description: str, field: str, field_desc: str) -> dict:
 
 TOOLS: list[dict] = [
     {"type": "computer_toolset_20260801"},
+    {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},  # runs on Anthropic servers
     _custom(
         "ask_permission",
         "Ask the person yes/no before anything that sends, pays, deletes, publishes or cannot be undone. "

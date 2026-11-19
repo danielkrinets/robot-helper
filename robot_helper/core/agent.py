@@ -123,6 +123,8 @@ class Agent:
             if response.stop_reason == "max_tokens":
                 return self._finish(State.ERROR, T["try_again"])
 
+            if response.stop_reason == "pause_turn":  # server-side web search paused: resume as is
+                continue
             calls = [b for b in response.content if b.type == "tool_use"]
             if not calls:
                 return self._finish(State.DONE)
