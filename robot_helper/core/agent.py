@@ -83,7 +83,8 @@ class Agent:
         self.hooks.on_state(state)
         return state
 
-    def run(self, task: str, history: list[tuple[str, str]] | None = None) -> State:
+    def run(self, task: str, history: list[tuple[str, str]] | None = None,
+            attachments: list[dict] | None = None) -> State:
         if self.stopped:
             return self._finish(State.STOPPED, T["stopped"])
         # no screenshot up front: a plain question should get a plain answer
@@ -98,6 +99,8 @@ class Agent:
                 messages.append({"role": role, "content": [{"type": "text", "text": text_}]})
         while messages and messages[0]["role"] != "user":
             messages.pop(0)
+        if attachments and messages:  # files go with the newest request, before its text
+            messages[-1]["content"] = [*attachments, *messages[-1]["content"]]
         self.images = 0
         for _ in range(self.max_steps):
             if self.stopped:

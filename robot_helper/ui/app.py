@@ -7,11 +7,14 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from tkinter import filedialog
 
 import anthropic
 
 from robot_helper.core import config
 from robot_helper.core.agent import Agent, Hooks, State
+from robot_helper.core.attachments import to_block
+from robot_helper.core.chats import Chats
 from robot_helper.core.executor import PyAutoGuiExecutor
 from robot_helper.core.texts import T
 from robot_helper.platform_.base import get_platform
@@ -23,10 +26,9 @@ ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 DOCKS = ["right", "left", "bottom_left", "top_right", "bottom"]
 DOCK_NAMES = {"right": "Справа", "left": "Слева", "bottom_left": "Слева внизу",
               "top_right": "Справа вверху", "bottom": "Снизу"}
-SIZES = {"widget": (380, 540), "full": (880, 700)}
+SIZES = {"widget": (400, 580), "full": (1000, 720)}
 MINI = 64
 MARGIN, TOP, BOTTOM = 20, 60, 90  # keep clear of the menu bar / Dock / taskbar
-HISTORY_KEEP = 60
 NEED_PERMS = "Чтобы я мог работать на компьютере, нужно один раз дать разрешения."
 
 
@@ -60,13 +62,17 @@ class App:
         self._running = self._working = False
         self.last_said = ""
         self.chat = None
-        self.history: list[tuple[str, str]] = [tuple(x) for x in config.get_pref("history", [])][-HISTORY_KEEP:]
+        self.chats = Chats()
+        self.files: list[str] = []  # attached, waiting to be sent
+        self.show_list = False  # widget mode: chat list instead of the conversation
         self.dock = config.get_pref("dock", "right")
         if self.dock not in DOCKS:
             self.dock = "right"
         self.mode = "widget"
         root.title("Робот-помощник")
         make_panel(root)
+        root.resizable(True, True)
+        root.minsize(340, 420)
         root.protocol("WM_DELETE_WINDOW", self.quit)
         try:
             self.logo_big = tk.PhotoImage(file=str(ASSETS / "icon.png"))
@@ -157,6 +163,9 @@ class App:
             icon_button(btns, "expand", lambda: self.set_mode("full")).pack(side="right", padx=(6, 0))
             icon_button(btns, "dock", self.next_dock).pack(side="right", padx=(6, 0))
         icon_button(btns, "minus", lambda: self.set_mode("mini")).pack(side="right", padx=(6, 0))
+        icon_button(btns, "plus", self.new_chat).pack(side="right", padx=(6, 0))
+        if self.mode != "full":
+            icon_button(btns, "list", self.toggle_list).pack(side="right", padx=(6, 0))
 
     def set_status(self, text: str, color: str):
         if self.chat is not None and self.status.winfo_exists():
@@ -234,24 +243,91 @@ class App:
         self.root.after(200, self.root.destroy)
 
     # --- chat -----------------------------------------------------------------------
+    @property
+    def history(self) -> list[tuple[str, str]]:
+        return self.chats.history
+
+    def new_chat(self):
+        if self._running:
+            return
+        self.chats.new()
+        self.show_list = False
+        self.files = []
+        self.set_mode(self.mode if self.mode in SIZES else "widget")
+
+    def open_chat(self, chat_id: str):
+        if self._running:
+            return
+        self.chats.switch(chat_id)
+        self.show_list = False
+        self.set_mode(self.mode if self.mode in SIZES else "widget")
+
+    def delete_chat(self, chat_id: str):
+        if self._running:
+            return
+        self.chats.delete(chat_id)
+        self.set_mode(self.mode if self.mode in SIZES else "widget")
+
+    def toggle_list(self):
+        self.show_list = not self.show_list
+        self.set_mode("widget")
+
+    def _chat_list(self, parent, width=None):
+        """List of saved chats: tap to open, trash to delete."""
+        box = tk.Frame(parent, bg=BG, width=width or 0)
+        Pill(box, "Новый чат", BLUE, self.new_chat, w=(width or 300) - 12, h=40, size=15).pack(pady=(0, 10))
+        holder = tk.Canvas(box, bg=BG, highlightthickness=0, width=(width or 300) - 8)
+        holder.pack(fill="both", expand=True)
+        inner = tk.Frame(holder, bg=BG)
+        holder.create_window((0, 0), window=inner, anchor="nw", width=(width or 300) - 8)
+        inner.bind("<Configure>", lambda e: holder.configure(scrollregion=holder.bbox("all")))
+        for chat in self.chats.items:
+            active = chat["id"] == self.chats.current_id
+            color = FIELD if active else BG
+            row = tk.Frame(inner, bg=color, cursor="hand2")
+            row.pack(fill="x", pady=2)
+            title = chat["title"] or "Новый чат"
+            lab = tk.Label(row, text=title, bg=color, fg=FG, font=font(14, "bold" if active else "normal"),
+                           anchor="w", justify="left", wraplength=(width or 300) - 70)
+            lab.pack(side="left", fill="x", expand=True, padx=10, pady=8)
+            for wdg in (row, lab):
+                wdg.bind("<ButtonRelease-1>", lambda e, i=chat["id"]: self.open_chat(i))
+            Pill(row, color=color, command=lambda i=chat["id"]: self.delete_chat(i), w=28, h=28, icon="trash",
+                 icon_scale=0.8, fg=MUTED).pack(side="right", padx=6)
+        return box
+
     def _build_chat(self, body):
         full = self.mode == "full"
+        if not full and self.show_list:
+            self._chat_list(body, width=int(self.root.winfo_width() or SIZES["widget"][0]) - 28).pack(
+                fill="both", expand=True)
+            return
+        if full:
+            side = self._chat_list(body, width=240)
+            side.pack(side="left", fill="y", padx=(0, 14))
+            side.pack_propagate(False)
         size, h = (18, 54) if full else (15, 44)
         bar = tk.Frame(body, bg=BG)
         bar.pack(side="bottom", fill="x", pady=(8, 0))
-        self.chat = Chat(body, wrap=560 if full else 250, text_size=size)
+        self.files_row = tk.Frame(body, bg=BG)
+        self.files_row.pack(side="bottom", fill="x")
+        self._paint_files()
+        self.chat = Chat(body, wrap=560 if full else 260, text_size=size)
+        self.chat.on_copied = lambda: self.set_status("Скопировано", GREEN)
         self.chat.pack(fill="both", expand=True)
         for text, who in self.history:
             self.chat.add(text, who)
-        if not self.history:
-            self._post(T["greeting"] + " Напишите, что сделать.", "robot")
+        if not self.history:  # shown, not saved: an empty chat stays empty
+            self.chat.add(T["greeting"] + " Напишите, что сделать.", "robot")
         Pill(bar, color=BLUE, command=self.submit, w=h, h=h, icon="send", icon_scale=h / 56).pack(side="right", padx=(6, 0))
         Pill(bar, color=FIELD, command=self.dictate, w=h, h=h, icon="mic", icon_scale=h / 56,
-             fg=FG).pack(side="right", padx=(8, 0))
+             fg=FG).pack(side="right", padx=(6, 0))
+        Pill(bar, color=FIELD, command=self.attach, w=h, h=h, icon="clip", icon_scale=h / 56,
+             fg=FG).pack(side="left", padx=(0, 6))
         field = tk.Canvas(bar, bg=BG, highlightthickness=0, height=h, width=10)
         field.pack(side="left", fill="x", expand=True)
         self.entry = tk.Text(field, font=font(size), height=1, bg=CARD, fg=FG, insertbackground=BLUE,
-                             relief="flat", highlightthickness=0, wrap="none")
+                             relief="flat", highlightthickness=0, wrap="word", undo=True)
         holder = field.create_window(h // 2, h // 2, window=self.entry, anchor="w")
 
         def layout(e):
@@ -259,10 +335,20 @@ class App:
             rounded(field, 0, 0, e.width, e.height, e.height / 2, CARD, tags="bg")
             field.tag_lower("bg")
             field.itemconfigure(holder, width=e.width - h)
+            field.coords(holder, h // 2, e.height // 2)
 
         field.bind("<Configure>", layout)
         field.bind("<Button-1>", lambda e: self.entry.focus_force())
         self.entry.bind("<Return>", lambda e: (self.submit(), "break")[1])
+        self.entry.bind("<Shift-Return>", lambda e: None)  # new line
+
+        def grow(_=None):  # the field grows up to 5 lines as the person types
+            lines = int(self.entry.count("1.0", "end", "displaylines")[0] or 1) if self.entry.winfo_exists() else 1
+            lines = max(1, min(5, lines))
+            self.entry.configure(height=lines)
+            field.configure(height=max(h, lines * (size + 10) + 18))
+
+        self.entry.bind("<KeyRelease>", grow, add="+")
         self._placeholder(self.entry, "Напишите, что сделать…" if full else "Что сделать?")
 
     @staticmethod
@@ -286,9 +372,7 @@ class App:
 
     def _post(self, text: str, who: str):
         """Main thread only."""
-        self.history.append((text, who))
-        self.history = self.history[-HISTORY_KEEP:]
-        config.set_pref("history", [list(x) for x in self.history if x[1] != "note"])
+        self.chats.add(text, who)
         if self.chat is not None:
             self.chat.add(text, who)
 
@@ -310,16 +394,60 @@ class App:
         self._post(self.services.dictation_hint(), "note")
         self.root.after(150, self.services.start_dictation)  # after the field really has focus
 
+    def attach(self):
+        paths = filedialog.askopenfilenames(parent=self.root, title="Выберите файл",
+                                            filetypes=[("Фото, PDF, текст", "*.png *.jpg *.jpeg *.gif *.webp *.pdf "
+                                                        "*.txt *.md *.csv *.json *.rtf"), ("Все файлы", "*")])
+        for p in paths or ():
+            try:
+                to_block(p)
+            except ValueError as exc:
+                self._post(f"{pathlib.Path(p).name}: {exc}", "note")
+                continue
+            if p not in self.files:
+                self.files.append(p)
+        self._paint_files()
+
+    def _paint_files(self):
+        row = getattr(self, "files_row", None)
+        if row is None or not row.winfo_exists():
+            return
+        for child in row.winfo_children():
+            child.destroy()
+        for p in self.files:
+            chip = tk.Frame(row, bg=FIELD)
+            chip.pack(side="left", padx=(0, 6), pady=(6, 0))
+            tk.Label(chip, text=pathlib.Path(p).name[:24], bg=FIELD, fg=FG, font=font(13)).pack(side="left", padx=(10, 2), pady=4)
+            x = tk.Label(chip, text="✕", bg=FIELD, fg=MUTED, font=font(13), cursor="hand2")
+            x.pack(side="left", padx=(2, 8))
+            x.bind("<ButtonRelease-1>", lambda e, q=p: (self.files.remove(q), self._paint_files()))
+
     def submit(self, task: str | None = None):
         if self._running:
             return
+        files, blocks = [], []
         if task is None:
             if self.chat is None or getattr(self.entry, "is_hint", False):
+                if not self.files:
+                    return
+                task = ""
+            else:
+                task = self.entry.get("1.0", "end").strip()
+            files = list(self.files)
+            if not task and not files:
                 return
-            task = self.entry.get("1.0", "end").strip()
+            for p in files:
+                try:
+                    blocks.append(to_block(p))
+                except ValueError:
+                    pass
             if not task:
-                return
+                task = "Посмотри файл."
+            if files:  # the path lets the robot also open the file on the computer if asked
+                task += "\n\n" + "\n".join(f"Файл: {p}" for p in files)
             self.entry.delete("1.0", "end")
+            self.files = []
+            self._paint_files()
         key = config.get_api_key()
         if not key:
             self.set_mode("full", setup=True)
@@ -339,7 +467,7 @@ class App:
         self._mode_before = self.mode
         self.set_status("Думаю", BLUE)
         context = [x for x in self.history[:-1] if x[1] in ("me", "robot")][-20:]
-        threading.Thread(target=self._run, args=(task, context), daemon=True).start()
+        threading.Thread(target=self._run, args=(task, context, blocks), daemon=True).start()
 
     def on_state(self, state: State):
         """Agent thread. The first computer action shrinks the helper out of the robot's way."""
@@ -364,9 +492,9 @@ class App:
         self.root.after(0, enter)
         done.wait(timeout=2)
 
-    def _run(self, task: str, context=None):
+    def _run(self, task: str, context=None, blocks=None):
         try:
-            state = self.agent.run(task, history=context)
+            state = self.agent.run(task, history=context, attachments=blocks or None)
         except Exception:  # never show a traceback to the person
             state = State.ERROR
             self.last_said = T["try_again"]
@@ -384,8 +512,7 @@ class App:
         if state == State.STOPPED and self.last_said not in (T["stopped"], T["too_many_steps"], NEED_PERMS):
             final = T["stopped"]
         if self.chat is not None or final != NEED_PERMS:
-            self.history.append((final, "robot"))
-            config.set_pref("history", [list(x) for x in self.history[-HISTORY_KEEP:] if x[1] != "note"])
+            self.chats.add(final, "robot")
             if self.chat is not None:
                 self.chat.add(final, "robot")
         if self._working:

@@ -103,6 +103,25 @@ def draw_icon(c: tk.Canvas, name: str, cx: float, cy: float, color: str, s: floa
         d = 6 * s
         c.create_line(cx + d, cy - 1 * s, cx + 1 * s, cy - 1 * s, cx + 1 * s, cy - d, **line)
         c.create_line(cx - d, cy + 1 * s, cx - 1 * s, cy + 1 * s, cx - 1 * s, cy + d, **line)
+    elif name == "plus":
+        d = 7 * s
+        c.create_line(cx - d, cy, cx + d, cy, **line)
+        c.create_line(cx, cy - d, cx, cy + d, **line)
+    elif name == "list":  # chats: three lines
+        for dy in (-5, 0, 5):
+            c.create_line(cx - 7 * s, cy + dy * s, cx + 7 * s, cy + dy * s, **line)
+    elif name == "clip":  # paperclip
+        c.create_line(cx + 4 * s, cy - 4 * s, cx + 4 * s, cy + 5 * s, **line)
+        c.create_arc(cx - 4 * s, cy + 1 * s, cx + 4 * s, cy + 9 * s, start=180, extent=180, style="arc",
+                     outline=color, width=w)
+        c.create_line(cx - 4 * s, cy + 5 * s, cx - 4 * s, cy - 7 * s, **line)
+        c.create_arc(cx - 4 * s, cy - 11 * s, cx + 4 * s, cy - 3 * s, start=0, extent=180, style="arc",
+                     outline=color, width=w)
+        c.create_line(cx + 4 * s, cy - 7 * s, cx + 4 * s, cy - 4 * s, **line)
+    elif name == "trash":
+        c.create_line(cx - 7 * s, cy - 6 * s, cx + 7 * s, cy - 6 * s, **line)
+        c.create_line(cx - 5 * s, cy - 6 * s, cx - 4 * s, cy + 7 * s, cx + 4 * s, cy + 7 * s, cx + 5 * s,
+                      cy - 6 * s, **line)
     elif name == "dock":  # a screen with a panel docked to one side
         rounded(c, cx - 8 * s, cy - 6 * s, cx + 8 * s, cy + 6 * s, 3 * s, "", outline=color, width=w)
         c.create_line(cx + 3 * s, cy - 5 * s, cx + 3 * s, cy + 5 * s, **line)
@@ -209,6 +228,19 @@ class Chat(tk.Frame):
             _, dy = self.canvas.tk.splitlist(self.canvas.tk.call("tk::PreciseScrollDeltas", e.delta))
             self._scroll(-int(float(dy) / 4))
 
+    def clear(self):
+        for child in self.inner.winfo_children():
+            child.destroy()
+        self.canvas.yview_moveto(0)
+
+    def copy(self, text: str):
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        if self.on_copied:
+            self.on_copied()
+
+    on_copied = None
+
     def add(self, text: str, who: str = "robot"):
         row = tk.Frame(self.inner, bg=BG)
         row.pack(fill="x", padx=4, pady=4)
@@ -222,6 +254,20 @@ class Chat(tk.Frame):
         c.configure(width=w, height=h)
         if who != "note":
             c.tag_lower(rounded(c, 0, 0, w, h, min(20, h / 2), color))
-        c.pack(side="right" if mine else "left")
+        c.pack(side="right" if mine else "left", anchor="n")
+        if who != "note":
+            menu = tk.Menu(c, tearoff=0)
+            menu.add_command(label="Копировать", command=lambda: self.copy(text))
+            for seq in ("<Button-2>", "<Button-3>", "<Control-Button-1>"):
+                c.bind(seq, lambda e: menu.tk_popup(e.x_root, e.y_root))
+            c.configure(cursor="hand2")
+            c.bind("<Double-Button-1>", lambda e: self.copy(text))
+        if who == "robot":
+            link = tk.Label(row, text="Копировать", bg=BG, fg=MUTED, font=font(max(11, self.size - 4)),
+                            cursor="hand2")
+            link.pack(side="left", anchor="s", padx=8)
+            link.bind("<ButtonRelease-1>", lambda e: (self.copy(text), link.config(text="Скопировано", fg=GREEN),
+                                                      link.after(1500, lambda: link.winfo_exists() and
+                                                                 link.config(text="Копировать", fg=MUTED))))
         self.update_idletasks()
         self.canvas.yview_moveto(1.0)

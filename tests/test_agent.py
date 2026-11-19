@@ -304,3 +304,24 @@ def test_system_prompt_names_the_os():
     h, _, _ = hooks()
     Agent(client, FakeExecutor(), h).run("x")
     assert "macOS" in client.requests[0]["system"] or "Windows" in client.requests[0]["system"]
+
+
+def test_attachments_go_before_the_task_text():
+    from robot_helper.core.agent import Agent, Hooks
+    sent = {}
+
+    class Msg:
+        stop_reason, content = "end_turn", []
+
+    class Client:
+        class messages:
+            @staticmethod
+            def create(**kw):
+                sent.update(kw)
+                return Msg()
+
+    hooks = Hooks(lambda s: None, lambda t: None, lambda q: True, lambda r: True, lambda x, y: None)
+    img = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "x"}}
+    Agent(Client(), None, hooks).run("что на фото?", attachments=[img])
+    content = sent["messages"][0]["content"]
+    assert content[0] == img and content[1]["text"] == "что на фото?"
