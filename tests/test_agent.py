@@ -65,7 +65,7 @@ def test_request_uses_model_tools_and_fallbacks():
     h, _, _ = hooks()
     Agent(client, FakeExecutor(), h).run("x")
     req = client.requests[0]
-    assert req["model"] == "claude-haiku-5-5"
+    assert req["model"] == "claude-sonnet-5-5"
     assert {"type": "computer_toolset_20260801"} in req["tools"]
     assert req["output_config"] == {"effort": "medium"}
     assert "fallbacks" not in req and "betas" not in req

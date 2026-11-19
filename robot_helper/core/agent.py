@@ -21,7 +21,7 @@ OS_HINT = ("\n\nКомпьютер: macOS. Программы и сайты от
            "Сайт открывай в браузере по умолчанию." if _sys.platform == "darwin" else
            "\n\nКомпьютер: Windows. Программы открывай сам: клавиша win, набери название, Enter. "
            "Сайт открывай в браузере по умолчанию.")
-MODEL = "claude-haiku-5-5"
+MODEL = "claude-sonnet-5-5"
 EFFORT = "medium"
 MAX_STEPS = 40
 MAX_IMAGES = 90  # the API accepts at most 100 images per request
@@ -109,7 +109,10 @@ class Agent:
             try:
                 response = self.client.messages.create(
                     model=self.model, max_tokens=16000, system=SYSTEM_PROMPT + OS_HINT + _today(), tools=TOOLS,
-                    messages=messages, output_config={"effort": EFFORT})
+                    messages=messages, output_config={"effort": EFFORT},
+                    # if Sonnet declines on a safety false positive, the API retries on another model
+                    extra_headers={"anthropic-beta": "server-side-fallback-2026-07-01"},
+                    extra_body={"fallbacks": "default"})
             except anthropic.AuthenticationError:
                 return self._finish(State.ERROR, T["bad_key"])
             except anthropic.APIConnectionError:
