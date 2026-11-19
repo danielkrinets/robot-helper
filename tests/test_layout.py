@@ -29,15 +29,15 @@ class _Root:
 
 def test_scale_follows_windows_4k_at_200_percent(monkeypatch):
     from robot_helper.ui import widgets
+    monkeypatch.setattr(widgets, "UI", widgets.UI)  # restored after the test
     monkeypatch.setattr(widgets.sys, "platform", "win32")
     root = _Root(192, 2160)  # 4K, 200%: logical height 1080
     assert widgets.set_scale(root) == 2.16 and root.scaling == 2.16
-    monkeypatch.setattr(widgets, "UI", 1.0)
 
 
 def test_scale_grows_on_big_logical_screen(monkeypatch):
     from robot_helper.ui import widgets
+    monkeypatch.setattr(widgets, "UI", widgets.UI)  # restored after the test
     monkeypatch.setattr(widgets.sys, "platform", "darwin")
     assert widgets.set_scale(_Root(72, 1440)) == 1.44
     assert widgets.set_scale(_Root(72, 900)) == 1.0
-    monkeypatch.setattr(widgets, "UI", 1.0)
