@@ -31,6 +31,7 @@ class Overlay:
         dot.create_oval(11, 11, 25, 25, fill=ORANGE, outline=ORANGE)
         dot.pack()
         self.windows = [*self.strips, self.caption, self.badge]
+        self.screenshot_only: list[tk.Misc] = []  # hidden during screenshots, never by hide()
         self._visible = False
         self._hide_all()
 
@@ -99,7 +100,7 @@ class Overlay:
         saved = {}
 
         def hide():
-            for win in self.windows:
+            for win in self.windows + self.screenshot_only:
                 saved[win] = win.geometry()
                 win.geometry("+-10000+-10000")
             self.root.update_idletasks()

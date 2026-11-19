@@ -1,7 +1,9 @@
-"""Floating, always-on-top helper with three sizes: mini bubble, docked widget, full window."""
+"""Helper window: a native always-on-top panel (docked or full) plus a tiny bubble while minimized."""
 from __future__ import annotations
 
+import os
 import pathlib
+import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -15,15 +17,17 @@ from robot_helper.core.texts import T
 from robot_helper.platform_.base import get_platform
 from robot_helper.ui.overlay import Overlay
 from robot_helper.ui.widgets import (BG, BLUE, CARD, FG, FIELD, GREEN, MUTED, ORANGE, RED, Chat, Pill,
-                                     card, check_row, clear_bg, font, icon_button, make_floating, rounded)
+                                     card, check_row, font, icon_button, make_floating, make_panel, rounded)
 
 ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 DOCKS = ["right", "left", "bottom_left", "top_right", "bottom"]
 DOCK_NAMES = {"right": "Справа", "left": "Слева", "bottom_left": "Слева внизу",
               "top_right": "Справа вверху", "bottom": "Снизу"}
-SIZES = {"widget": (380, 560), "full": (880, 720), "mini": (68, 68)}
-RADIUS = 26
-MARGIN, TOP, BOTTOM = 20, 44, 90  # keep clear of the menu bar / Dock / taskbar
+SIZES = {"widget": (380, 540), "full": (880, 700)}
+MINI = 64
+MARGIN, TOP, BOTTOM = 20, 60, 90  # keep clear of the menu bar / Dock / taskbar
+HISTORY_KEEP = 60
+NEED_PERMS = "Чтобы я мог работать на компьютере, нужно один раз дать разрешения."
 
 
 def place(dock: str, w: int, h: int, sw: int, sh: int) -> tuple[int, int]:
@@ -37,6 +41,15 @@ def place(dock: str, w: int, h: int, sw: int, sh: int) -> tuple[int, int]:
     }[dock]
 
 
+def relaunch() -> None:
+    """Start a fresh copy of the app (macOS applies screen-recording permission only after a restart)."""
+    if getattr(sys, "frozen", False) and sys.platform == "darwin":
+        bundle = pathlib.Path(sys.executable).parents[2]
+        subprocess.Popen(["/bin/sh", "-c", f'sleep 1; open -n "{bundle}"'])
+    else:
+        subprocess.Popen([sys.executable, "-m", "robot_helper"], cwd=os.getcwd())
+
+
 class App:
     def __init__(self, root: tk.Tk, services=None):
         self.root, self.services = root, services or get_platform()
@@ -45,16 +58,16 @@ class App:
         self.executor: PyAutoGuiExecutor | None = None
         self._pending: tuple[threading.Event, list] | None = None
         self._running = self._working = False
-        self.history: list[tuple[str, str]] = []
         self.last_said = ""
         self.chat = None
+        self.history: list[tuple[str, str]] = [tuple(x) for x in config.get_pref("history", [])][-HISTORY_KEEP:]
         self.dock = config.get_pref("dock", "right")
         if self.dock not in DOCKS:
             self.dock = "right"
         self.mode = "widget"
         root.title("Робот-помощник")
-        root.withdraw()  # the borderless style only applies to a window that is not mapped yet
-        make_floating(root)
+        make_panel(root)
+        root.protocol("WM_DELETE_WINDOW", self.quit)
         try:
             self.logo_big = tk.PhotoImage(file=str(ASSETS / "icon.png"))
             self.logo = tk.PhotoImage(file=str(ASSETS / "icon-64.png")).subsample(2, 2)
@@ -64,69 +77,71 @@ class App:
         root.bind("<Escape>", lambda e: self.stop())
         self.overlay = Overlay(root, self.services)
         self.stop_win = self._make_stop_window()
-        self.overlay.windows += [self.stop_win, root]  # all hidden during screenshots
+        self.mini = self._make_mini()
+        self.overlay.windows.append(self.stop_win)
+        self.overlay.screenshot_only += [root, self.mini]  # hidden for screenshots, never withdrawn
         self.services.watch_escape(self._on_global_escape)
-        self.shell = tk.Canvas(root, bg=clear_bg(), highlightthickness=0)
-        self.shell.pack(fill="both", expand=True)
-        # only the key is required up front; macOS permissions are asked for when the robot first needs them
+        self.body = tk.Frame(root, bg=BG)
+        self.body.pack(fill="both", expand=True, padx=14, pady=(6, 14))
         needs_setup = config.get_api_key() is None
         self.set_mode("full" if needs_setup else "widget", setup=needs_setup)
-        root.deiconify()
+        pending = config.get_pref("pending_task", "")
+        if pending and not needs_setup and not self.services.missing_permissions():
+            config.set_pref("pending_task", "")
+            root.after(800, lambda: self.submit(pending))  # finish what was asked before the restart
 
-    # --- window shape and size ------------------------------------------------------
+    # --- windows --------------------------------------------------------------------
     def set_mode(self, mode: str, setup: bool = False):
+        if mode == "mini":
+            self.mode = "mini"
+            self.root.withdraw()
+            sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+            x, y = place(self.dock, MINI, MINI, sw, sh)
+            self.mini.geometry(f"{MINI}x{MINI}+{x}+{y}")
+            self._paint_mini()
+            self.mini.deiconify()
+            return
+        self.mini.withdraw()
         self.mode = mode
         w, h = SIZES[mode]
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         x, y = ((sw - w) // 2, (sh - h) // 2) if mode == "full" else place(self.dock, w, h, sw, sh)
         self.root.geometry(f"{w}x{h}+{x}+{y}")
-        self.shell.unbind("<ButtonRelease-1>")
-        self.shell.delete("all")
-        for child in self.shell.winfo_children():
+        for child in self.body.winfo_children():
             child.destroy()
         self.chat = None
-        if mode == "mini":
-            self._build_mini(w, h)
-            return
-        rounded(self.shell, 1, 1, w - 1, h - 1, RADIUS, BG, outline=FIELD, width=1)
-        pad = RADIUS // 2
-        body = tk.Frame(self.shell, bg=BG)
-        self.shell.create_window(pad, pad, window=body, anchor="nw", width=w - 2 * pad, height=h - 2 * pad)
-        self._header(body)
+        self._header(self.body)
         if setup:
-            self._build_setup(body)
+            self._build_setup(self.body)
         else:
-            self._build_chat(body)
+            self._build_chat(self.body)
+        self.root.deiconify()
+        self.root.lift()
 
-    def _build_mini(self, w, h):
-        ring = BLUE if self._running else FIELD
-        self.shell.create_oval(2, 2, w - 2, h - 2, fill=BG, outline=ring, width=3)
+    def _make_mini(self) -> tk.Toplevel:
+        win = tk.Toplevel(self.root)
+        make_floating(win)
+        self.mini_canvas = tk.Canvas(win, width=MINI, height=MINI, bg=BG, highlightthickness=0, cursor="hand2")
+        self.mini_canvas.pack()
+        self.mini_canvas.bind("<ButtonRelease-1>", lambda e: None if self._running else self.set_mode("widget"))
+        win.withdraw()
+        return win
+
+    def _paint_mini(self):
+        c = self.mini_canvas
+        c.delete("all")
+        c.create_rectangle(0, 0, MINI, MINI, fill=BG, outline=BLUE if self._running else FIELD, width=3)
         if self.logo is not None:
-            self.shell.create_image(w // 2, h // 2, image=self.logo)
-        self.shell.bind("<ButtonRelease-1>", lambda e: None if self._running else self.set_mode("widget"))
-
-    def _drag(self, widget):
-        def start(e):
-            self._drag_from = (e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y())
-
-        def move(e):
-            dx, dy = self._drag_from
-            self.root.geometry(f"+{e.x_root - dx}+{e.y_root - dy}")
-
-        widget.bind("<ButtonPress-1>", start)
-        widget.bind("<B1-Motion>", move)
+            c.create_image(MINI // 2, MINI // 2, image=self.logo)
 
     def _header(self, body):
         head = tk.Frame(body, bg=BG)
-        head.pack(fill="x", padx=6, pady=(4, 10))
+        head.pack(fill="x", pady=(0, 10))
         if self.logo is not None:
-            logo = tk.Label(head, image=self.logo, bg=BG)
-            logo.pack(side="left", padx=(0, 8))
-            self._drag(logo)
+            tk.Label(head, image=self.logo, bg=BG).pack(side="left", padx=(0, 8))
         title = tk.Frame(head, bg=BG)
         title.pack(side="left")
-        name = tk.Label(title, text="Помощник", bg=BG, fg=FG, font=font(16, "bold"))
-        name.pack(anchor="w")
+        tk.Label(title, text="Помощник", bg=BG, fg=FG, font=font(16, "bold")).pack(anchor="w")
         row = tk.Frame(title, bg=BG)
         row.pack(anchor="w")
         self.dot = tk.Canvas(row, width=8, height=8, bg=BG, highlightthickness=0)
@@ -134,11 +149,8 @@ class App:
         self.dot.pack(side="left", padx=(0, 6))
         self.status = tk.Label(row, text="Готов", bg=BG, fg=MUTED, font=font(13))
         self.status.pack(side="left")
-        for w in (head, title, name):
-            self._drag(w)
         btns = tk.Frame(head, bg=BG)
         btns.pack(side="right")
-        icon_button(btns, "close", self.root.destroy).pack(side="right", padx=(6, 0))
         if self.mode == "full":
             icon_button(btns, "shrink", lambda: self.set_mode("widget")).pack(side="right", padx=(6, 0))
         else:
@@ -147,7 +159,7 @@ class App:
         icon_button(btns, "minus", lambda: self.set_mode("mini")).pack(side="right", padx=(6, 0))
 
     def set_status(self, text: str, color: str):
-        if self.mode != "mini" and self.status.winfo_exists():
+        if self.chat is not None and self.status.winfo_exists():
             self.status.config(text=text)
             self.dot.itemconfig(self.dot_item, fill=color, outline=color)
 
@@ -157,19 +169,24 @@ class App:
         self.set_mode("widget")
         self.set_status(DOCK_NAMES[self.dock], MUTED)
 
+    def quit(self):
+        if self.agent:
+            self.agent.stop()
+        self.root.destroy()
+
     # --- setup ----------------------------------------------------------------------
     def _build_setup(self, body):
         box = tk.Frame(body, bg=BG)
-        box.pack(fill="both", expand=True, padx=24, pady=8)
-        tk.Label(box, text="Настройка", bg=BG, fg=FG, font=font(28, "bold")).pack(anchor="w")
+        box.pack(fill="both", expand=True, padx=16)
+        tk.Label(box, text="Настройка", bg=BG, fg=FG, font=font(26, "bold")).pack(anchor="w")
         tk.Label(box, text="Это делает тот, кто устанавливает помощника.", bg=BG, fg=MUTED,
-                 font=font(15)).pack(anchor="w", pady=(2, 16))
+                 font=font(15)).pack(anchor="w", pady=(2, 14))
         key_card = card(box)
         if config.get_api_key():
             check_row(key_card, "Ключ Claude API сохранён").pack(anchor="w")
         else:
             tk.Label(key_card, text="Ключ Claude API", bg=CARD, fg=FG, font=font(16, "bold")).pack(anchor="w")
-            field = card(key_card, pad=10, radius=16, color=FIELD)
+            field = card(key_card, pad=10, radius=14, color=FIELD)
             entry = tk.Entry(field, show="•", font=font(16), bg=FIELD, fg=FG, insertbackground=BLUE,
                              relief="flat", highlightthickness=0)
             entry.pack(fill="x")
@@ -181,44 +198,48 @@ class App:
 
             entry.bind("<Return>", lambda e: save())
             Pill(key_card, "Сохранить", BLUE, save, w=140, h=40, size=15).pack(anchor="w", pady=(4, 0))
-            self.root.after(50, entry.focus_force)
-        perm_card = card(box)
+            self.root.after(80, entry.focus_force)
         missing = self.services.missing_permissions()
-        if missing:
-            tk.Label(perm_card, text="Нужны разрешения macOS", bg=CARD, fg=FG, font=font(16, "bold")).pack(anchor="w")
-            tk.Label(perm_card, text="Системные настройки, «Конфиденциальность и безопасность». "
-                     "Нажмите «Открыть» и включите RobotHelper в каждом разделе:", bg=CARD, fg=MUTED, font=font(14),
-                     wraplength=700, justify="left").pack(anchor="w", pady=(4, 6))
-            for item in [m.split("→")[-1].strip() for m in missing] + ["Мониторинг ввода"]:
-                row = tk.Frame(perm_card, bg=CARD)
-                row.pack(fill="x", pady=3)
-                tk.Label(row, text=item, bg=CARD, fg=FG, font=font(15)).pack(side="left", padx=(4, 0))
-                Pill(row, "Открыть", BLUE, lambda n=item: self.services.open_settings(n),
-                     w=110, h=34, size=14).pack(side="right")
-            tk.Label(perm_card, text="Потом закройте программу и откройте снова.", bg=CARD, fg=MUTED,
-                     font=font(14)).pack(anchor="w", pady=(6, 8))
-            Pill(perm_card, "Проверить снова", FIELD, self._after_setup, w=180, h=40, size=15).pack(anchor="w")
-        else:
-            check_row(perm_card, "Разрешения выданы").pack(anchor="w")
+        if not missing:
+            return
+        perm_card = card(box)
+        tk.Label(perm_card, text="Разрешения macOS", bg=CARD, fg=FG, font=font(16, "bold")).pack(anchor="w")
+        tk.Label(perm_card, text="Нажмите «Открыть» и включите RobotHelper в каждом разделе.", bg=CARD,
+                 fg=MUTED, font=font(14), wraplength=700, justify="left").pack(anchor="w", pady=(4, 8))
+        for item in [m.split("→")[-1].strip() for m in missing] + ["Мониторинг ввода"]:
+            row = tk.Frame(perm_card, bg=CARD)
+            row.pack(fill="x", pady=3)
+            tk.Label(row, text=item, bg=CARD, fg=FG, font=font(15)).pack(side="left", padx=(4, 0))
+            Pill(row, "Открыть", BLUE, lambda n=item: self.services.open_settings(n),
+                 w=110, h=34, size=14).pack(side="right")
+        tk.Label(perm_card, text="Когда всё включено, нажмите «Перезапустить» — я продолжу с того места.",
+                 bg=CARD, fg=MUTED, font=font(14), wraplength=700, justify="left").pack(anchor="w", pady=(10, 8))
+        row = tk.Frame(perm_card, bg=CARD)
+        row.pack(anchor="w")
+        Pill(row, "Перезапустить", GREEN, self.restart, w=170, h=40, size=15).pack(side="left")
+        Pill(row, "Назад к чату", FIELD, lambda: self.set_mode("widget"), w=150, h=40, size=15).pack(side="left", padx=8)
 
     def _after_setup(self):
         ready = bool(config.get_api_key())
         self.set_mode("widget" if ready else "full", setup=not ready)
 
+    def restart(self):
+        relaunch()
+        self.root.after(200, self.root.destroy)
+
     # --- chat -----------------------------------------------------------------------
     def _build_chat(self, body):
         full = self.mode == "full"
-        size, h = (18, 56) if full else (15, 46)
+        size, h = (18, 54) if full else (15, 44)
         bar = tk.Frame(body, bg=BG)
-        bar.pack(side="bottom", fill="x", pady=(8, 2))
+        bar.pack(side="bottom", fill="x", pady=(8, 0))
         self.chat = Chat(body, wrap=560 if full else 250, text_size=size)
         self.chat.pack(fill="both", expand=True)
         for text, who in self.history:
             self.chat.add(text, who)
         if not self.history:
             self._post(T["greeting"] + " Напишите, что сделать.", "robot")
-        send = Pill(bar, color=BLUE, command=self.submit, w=h, h=h, icon="send", icon_scale=h / 56)
-        send.pack(side="right", padx=(6, 0))
+        Pill(bar, color=BLUE, command=self.submit, w=h, h=h, icon="send", icon_scale=h / 56).pack(side="right", padx=(6, 0))
         Pill(bar, color=FIELD, command=self.dictate, w=h, h=h, icon="mic", icon_scale=h / 56,
              fg=FG).pack(side="right", padx=(8, 0))
         field = tk.Canvas(bar, bg=BG, highlightthickness=0, height=h, width=10)
@@ -234,8 +255,9 @@ class App:
             field.itemconfigure(holder, width=e.width - h)
 
         field.bind("<Configure>", layout)
+        field.bind("<Button-1>", lambda e: self.entry.focus_force())
         self.entry.bind("<Return>", lambda e: (self.submit(), "break")[1])
-        self._placeholder(self.entry, "Что сделать?" if not full else "Напишите, что сделать…")
+        self._placeholder(self.entry, "Напишите, что сделать…" if full else "Что сделать?")
 
     @staticmethod
     def _placeholder(entry: tk.Text, hint: str):
@@ -259,15 +281,20 @@ class App:
     def _post(self, text: str, who: str):
         """Main thread only."""
         self.history.append((text, who))
+        self.history = self.history[-HISTORY_KEEP:]
+        config.set_pref("history", [list(x) for x in self.history if x[1] != "note"])
         if self.chat is not None:
             self.chat.add(text, who)
 
     def _make_stop_window(self) -> tk.Toplevel:
         win = tk.Toplevel(self.root)
         make_floating(win)
+        win.configure(bg=RED)
         w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         win.geometry(f"200x64+{(w - 200) // 2}+{h - 64 - BOTTOM}")
-        Pill(win, T["stop"], RED, self.stop, w=200, h=64, size=22).pack()
+        btn = tk.Label(win, text=T["stop"], bg=RED, fg="white", font=font(24, "bold"), cursor="hand2")
+        btn.pack(fill="both", expand=True)
+        btn.bind("<ButtonRelease-1>", lambda e: self.stop())
         win.withdraw()
         return win
 
@@ -277,18 +304,24 @@ class App:
         self._post(self.services.dictation_hint(), "note")
         self.services.start_dictation()
 
-    def submit(self):
-        if self._running or getattr(self.entry, "is_hint", False):
+    def submit(self, task: str | None = None):
+        if self._running:
             return
-        task = self.entry.get("1.0", "end").strip()
-        if not task:
-            return
+        if task is None:
+            if self.chat is None or getattr(self.entry, "is_hint", False):
+                return
+            task = self.entry.get("1.0", "end").strip()
+            if not task:
+                return
+            self.entry.delete("1.0", "end")
         key = config.get_api_key()
         if not key:
             self.set_mode("full", setup=True)
             return
-        self.entry.delete("1.0", "end")
+        if self.chat is None:
+            self.set_mode("widget")
         self._post(task, "me")
+        self._task = task
         client = anthropic.Anthropic(api_key=key)
         hooks = Hooks(on_state=self.on_state, on_say=self.say, ask_permission=self.ask,
                       hand_over=self.hand_over, on_pointer=self.overlay.move_hand)
@@ -303,24 +336,26 @@ class App:
 
     def on_state(self, state: State):
         """Agent thread. The first computer action shrinks the helper out of the robot's way."""
-        if state == State.WORKING and not self._working and self.services.missing_permissions():
+        if state != State.WORKING or self._working:
+            return
+        if self.services.missing_permissions():
             self.agent.stop()  # cannot see or move without macOS permissions; ask for them now
-            self.last_said = "Чтобы я мог работать на компьютере, нужно один раз дать разрешения."
+            self.last_said = NEED_PERMS
+            config.set_pref("pending_task", self._task)
             self.root.after(0, lambda: self.set_mode("full", setup=True))
             return
-        if state == State.WORKING and not self._working:
-            self._working = True
-            done = threading.Event()
+        self._working = True
+        done = threading.Event()
 
-            def enter():
-                self.set_mode("mini")
-                self.overlay.show(T["working"])
-                self.stop_win.deiconify()
-                self.root.update_idletasks()
-                done.set()
+        def enter():
+            self.set_mode("mini")
+            self.overlay.show(T["working"])
+            self.stop_win.deiconify()
+            self.root.update_idletasks()
+            done.set()
 
-            self.root.after(0, enter)
-            done.wait(timeout=2)
+        self.root.after(0, enter)
+        done.wait(timeout=2)
 
     def _run(self, task: str):
         try:
@@ -335,19 +370,24 @@ class App:
         if self._working:
             self.overlay.hide()
             self.stop_win.withdraw()
-            self.set_mode(self._mode_before if self._mode_before != "mini" else "widget")
+            self.set_mode(self._mode_before if self._mode_before in SIZES else "widget")
+        elif self.mode == "mini":
+            self.set_mode("widget")
         final = self.last_said or {State.DONE: T["done"], State.STOPPED: T["stopped"]}.get(state, T["try_again"])
-        if state == State.STOPPED and self.last_said not in (T["stopped"], T["too_many_steps"]) \
-                and not self.last_said.startswith("Чтобы я мог"):
+        if state == State.STOPPED and self.last_said not in (T["stopped"], T["too_many_steps"], NEED_PERMS):
             final = T["stopped"]
-        self._post(final, "robot")
+        if self.chat is not None or final != NEED_PERMS:
+            self.history.append((final, "robot"))
+            config.set_pref("history", [list(x) for x in self.history[-HISTORY_KEEP:] if x[1] != "note"])
+            if self.chat is not None:
+                self.chat.add(final, "robot")
         if self._working:
             self.services.speak(final)
         self.set_status(*{State.DONE: ("Готов", GREEN), State.STOPPED: ("Остановлен", ORANGE),
                           State.ERROR: ("Не получилось", RED)}.get(state, ("Готов", GREEN)))
 
     def _on_global_escape(self):
-        # pynput also sees the Esc that the robot itself presses; ignore those
+        # the Esc that the robot itself presses must not stop it
         if self.executor is not None and self.executor.injecting:
             return
         self.root.after(0, self.stop)
@@ -382,18 +422,20 @@ class App:
                 self.overlay.hide()
                 self.stop_win.deiconify()  # keep STOP reachable while the person works
             win = tk.Toplevel(self.root)
-            make_floating(win)
-            w, h = 520, 230
+            make_panel(win)
+            win.title("Робот-помощник")
+            w, h = 520, 210
             sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
             win.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
-            c = tk.Canvas(win, bg=clear_bg(), highlightthickness=0, width=w, height=h)
-            c.pack()
-            rounded(c, 1, 1, w - 1, h - 1, RADIUS, BG, outline=FIELD, width=1)
-            c.create_text(w // 2, 76, text=text, fill=FG, font=font(20, "bold"), width=w - 60, justify="center")
-            row = tk.Frame(c, bg=BG)
+            tk.Label(win, text=text, bg=BG, fg=FG, font=font(20, "bold"), wraplength=w - 60,
+                     justify="center").pack(pady=(28, 18), padx=30)
+            row = tk.Frame(win, bg=BG)
+            row.pack()
             for label, color, value in buttons:
                 Pill(row, label, color, lambda v=value: self._resolve(v), w=150, h=52, size=18).pack(side="left", padx=8)
-            c.create_window(w // 2, h - 56, window=row)
+            win.protocol("WM_DELETE_WINDOW", lambda: self._resolve(False))
+            win.lift()
+            win.focus_force()
             self._dialog_win = win
 
         self.root.after(0, build)

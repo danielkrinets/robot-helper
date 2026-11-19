@@ -29,8 +29,7 @@ def rounded(canvas: tk.Canvas, x0, y0, x1, y1, r, color, outline=None, **kw):
 
 
 def clear_bg() -> str:
-    """Background that the OS treats as see-through, so windows can have real rounded corners."""
-    return "systemTransparent" if sys.platform == "darwin" else KEY
+    return BG
 
 
 def make_floating(win: tk.Misc) -> None:
@@ -45,11 +44,18 @@ def make_floating(win: tk.Misc) -> None:
     else:
         win.overrideredirect(True)
     win.attributes("-topmost", True)
+    win.configure(bg=BG)  # solid: see-through corners left artifacts on macOS
+
+
+def make_panel(win: tk.Misc) -> None:
+    """A normal, native window (real rounded corners, keyboard focus) that floats above others."""
+    win.attributes("-topmost", True)
     if sys.platform == "darwin":
-        win.attributes("-transparent", True)
-    elif sys.platform == "win32":
-        win.attributes("-transparentcolor", KEY)
-    win.configure(bg=clear_bg())
+        try:
+            win.attributes("-appearance", "darkaqua")
+        except tk.TclError:
+            pass
+    win.configure(bg=BG)
 
 
 def draw_icon(c: tk.Canvas, name: str, cx: float, cy: float, color: str, s: float = 1.0) -> None:
