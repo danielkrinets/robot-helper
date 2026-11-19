@@ -192,10 +192,20 @@ class App:
         tk.Label(box, text="Это делает тот, кто устанавливает помощника.", bg=BG, fg=MUTED,
                  font=font(15)).pack(anchor="w", pady=(2, 14))
         key_card = card(box)
-        if config.get_api_key():
-            check_row(key_card, "Ключ Claude API сохранён").pack(anchor="w")
+        if config.get_api_key() and not getattr(self, "replace_key", False):
+            row = tk.Frame(key_card, bg=CARD)
+            row.pack(fill="x")
+            check_row(row, "Ключ Claude API сохранён").pack(side="left")
+
+            def change():
+                self.replace_key = True
+                self.set_mode("full", setup=True)
+
+            Pill(row, "Сменить", FIELD, change, w=110, h=34, size=14).pack(side="right")
         else:
-            tk.Label(key_card, text="Ключ Claude API", bg=CARD, fg=FG, font=font(16, "bold")).pack(anchor="w")
+            title = "Ключ не подошёл. Вставьте новый" if getattr(self, "bad_key", False) else "Ключ Claude API"
+            tk.Label(key_card, text=title, bg=CARD, fg=RED if getattr(self, "bad_key", False) else FG,
+                     font=font(16, "bold")).pack(anchor="w")
             field = card(key_card, pad=10, radius=14, color=FIELD)
             entry = tk.Entry(field, show="•", font=font(16), bg=FIELD, fg=FG, insertbackground=BLUE,
                              relief="flat", highlightthickness=0)
@@ -204,11 +214,15 @@ class App:
             def save():
                 if entry.get().strip():
                     config.set_api_key(entry.get())
+                    self.replace_key = self.bad_key = False
                     self._after_setup()
 
             entry.bind("<Return>", lambda e: save())
             Pill(key_card, "Сохранить", BLUE, save, w=140, h=40, size=15).pack(anchor="w", pady=(4, 0))
             self.root.after(80, entry.focus_force)
+        if config.get_api_key() and not self.services.missing_permissions():
+            Pill(box, "Назад к чату", FIELD, lambda: (setattr(self, "replace_key", False),
+                                                      self.set_mode("widget")), w=150, h=40, size=15).pack(anchor="w")
         missing = self.services.missing_permissions()
         if not missing:
             return
@@ -551,6 +565,9 @@ class App:
                 self.chat.add(final, "robot")
         if self._working:
             self.services.speak(final)
+        if final == T["bad_key"]:  # wrong or revoked key: open the key field right away
+            self.bad_key = self.replace_key = True
+            self.set_mode("full", setup=True)
         self.set_status(*{State.DONE: ("Готов", GREEN), State.STOPPED: ("Остановлен", ORANGE),
                           State.ERROR: ("Не получилось", RED)}.get(state, ("Готов", GREEN)))
 
