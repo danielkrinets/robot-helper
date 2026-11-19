@@ -202,6 +202,12 @@ class App:
         missing = self.services.missing_permissions()
         if not missing:
             return
+        # ask macOS right away: its own prompt adds RobotHelper to the list, so no "+" is needed
+        request = getattr(self.services, "_request", None)
+        if request and not getattr(self, "_asked_perms", False):
+            self._asked_perms = True
+            for name in [m.split("→")[-1].strip() for m in missing]:
+                self.root.after(300, lambda n=name: request(n))
         perm_card = card(box)
         tk.Label(perm_card, text="Разрешения macOS", bg=CARD, fg=FG, font=font(16, "bold")).pack(anchor="w")
         tk.Label(perm_card, text="Нажмите «Открыть» и включите RobotHelper в каждом разделе.", bg=CARD,

@@ -9,7 +9,7 @@ from typing import Callable
 AX = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
 CG = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
 CF = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
-_URL = "x-apple.systempreferences:com.apple.preference.security?"
+_URL = "x-apple.systempreferences:com.apple.preference.security?"  # macOS 27 may land on the merged pane
 PANES = {
     "Универсальный доступ": _URL + "Privacy_Accessibility",
     "Запись экрана": _URL + "Privacy_ScreenCapture",
