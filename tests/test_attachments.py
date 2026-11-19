@@ -5,7 +5,7 @@ from robot_helper.core.attachments import to_block
 
 def test_text_file(tmp_path):
     f = tmp_path / "a.txt"
-    f.write_text("привет")
+    f.write_text("привет", encoding="utf-8")
     b = to_block(str(f))
     assert b["type"] == "document" and b["source"]["data"] == "привет"
 
