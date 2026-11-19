@@ -13,6 +13,24 @@ FAMILY = ".AppleSystemUIFont" if sys.platform == "darwin" else "Segoe UI"
 KEY = "#010203"  # Windows transparent key color
 
 
+UI = 1.0  # screen scale: sizes in this code are designed for a ~1000 px tall screen at 100%
+
+
+def set_scale(root: tk.Misc) -> float:
+    """Scale the whole interface to the screen: Windows display scaling (4K at 150-200%)
+    and big monitors. Call right after tk.Tk(), before building any window."""
+    global UI
+    dpi = root.winfo_fpixels("1i") / 96 if sys.platform == "win32" else 1.0
+    logical_h = root.winfo_screenheight() / max(dpi, 0.5)
+    UI = round(max(dpi, 0.5) * min(1.6, max(1.0, logical_h / 1000)), 3)
+    root.tk.call("tk", "scaling", UI)  # fonts are given in points: 1 pt = UI px everywhere
+    return UI
+
+
+def px(v: float) -> int:
+    return int(round(v * UI))
+
+
 def font(size: int, weight: str = "normal"):
     return (FAMILY, size, weight)
 
@@ -157,6 +175,7 @@ class Pill(tk.Canvas):
 
     def __init__(self, parent, text="", color=BLUE, command=None, w=160, h=48, size=17, fg="white",
                  icon=None, icon_scale=1.0):
+        w, h, icon_scale = px(w), px(h), icon_scale * UI
         super().__init__(parent, width=w, height=h, bg=parent["bg"], highlightthickness=0, cursor="hand2")
         self.color, self.command, self.w, self.h = color, command, w, h
         if not color:
@@ -192,6 +211,7 @@ def icon_button(parent, icon, command, size=28) -> Pill:
 
 def card(parent, pad=18, radius=22, color=CARD) -> tk.Frame:
     """Rounded container; returns the inner frame to pack content into."""
+    pad, radius = px(pad), px(radius)
     outer = tk.Canvas(parent, bg=parent["bg"], highlightthickness=0, height=10)
     outer.pack(fill="x", pady=6)
     inner = tk.Frame(outer, bg=color)
@@ -213,8 +233,8 @@ def card(parent, pad=18, radius=22, color=CARD) -> tk.Frame:
 
 def check_row(parent, text: str) -> tk.Frame:
     row = tk.Frame(parent, bg=parent["bg"])
-    c = tk.Canvas(row, width=22, height=22, bg=parent["bg"], highlightthickness=0)
-    draw_icon(c, "check", 11, 11, GREEN, 0.9)
+    c = tk.Canvas(row, width=px(22), height=px(22), bg=parent["bg"], highlightthickness=0)
+    draw_icon(c, "check", px(11), px(11), GREEN, 0.9 * UI)
     c.pack(side="left", padx=(0, 8))
     tk.Label(row, text=text, bg=parent["bg"], fg=GREEN, font=font(16)).pack(side="left")
     return row
@@ -225,7 +245,7 @@ class Chat(tk.Frame):
 
     def __init__(self, parent, wrap: int, text_size: int):
         super().__init__(parent, bg=BG)
-        self.wrap, self.size = wrap, text_size
+        self.wrap, self.size = px(wrap), text_size
         self.canvas = tk.Canvas(self, bg=BG, highlightthickness=0)
         self.inner = tk.Frame(self.canvas, bg=BG)
         self.window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
@@ -294,13 +314,13 @@ class Chat(tk.Frame):
         mine = who == "me"
         color = {"me": BLUE, "robot": CARD, "note": BG}[who]
         c = tk.Canvas(row, bg=BG, highlightthickness=0)
-        t = c.create_text(14, 9, text=text, anchor="nw", width=self.wrap, font=font(self.size),
+        t = c.create_text(px(14), px(9), text=text, anchor="nw", width=self.wrap, font=font(self.size),
                           fill=MUTED if who == "note" else FG)
         _, _, x1, y1 = c.bbox(t)
-        w, h = x1 + 14, y1 + 9
+        w, h = x1 + px(14), y1 + px(9)
         c.configure(width=w, height=h)
         if who != "note":
-            c.tag_lower(rounded(c, 0, 0, w, h, min(20, h / 2), color))
+            c.tag_lower(rounded(c, 0, 0, w, h, min(px(20), h / 2), color))
         c.pack(side="right" if mine else "left", anchor="n")
         if who != "note":
             menu = tk.Menu(c, tearoff=0)

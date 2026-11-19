@@ -10,8 +10,7 @@ import time
 import tkinter as tk
 
 ORANGE = "#FF8A00"
-EDGE = 10
-BADGE_OFFSET = 28
+from robot_helper.ui.widgets import px
 
 
 class Overlay:
@@ -19,16 +18,17 @@ class Overlay:
         self.root, self.services = root, services
         self._main = threading.current_thread()
         w, h = root.winfo_screenwidth(), root.winfo_screenheight()
+        EDGE = self.edge = px(10)
         geoms = [f"{w}x{EDGE}+0+0", f"{w}x{EDGE}+0+{h - EDGE}", f"{EDGE}x{h}+0+0", f"{EDGE}x{h}+{w - EDGE}+0"]
         self.strips = [self._window(g, ORANGE) for g in geoms]
-        self.caption = self._window(f"+{w // 2 - 300}+{EDGE}", ORANGE)
+        self.caption = self._window(f"+{w // 2 - px(300)}+{EDGE}", ORANGE)
         self.caption_label = tk.Label(self.caption, text="", bg=ORANGE, fg="white",
-                                      font=(".AppleSystemUIFont" if __import__("sys").platform == "darwin" else "Segoe UI", 24, "bold"), padx=24, pady=8)
+                                      font=(".AppleSystemUIFont" if __import__("sys").platform == "darwin" else "Segoe UI", 24, "bold"), padx=px(24), pady=px(8))
         self.caption_label.pack()
         self.badge = self._window("+0+0", ORANGE)
-        dot = tk.Canvas(self.badge, width=36, height=36, bg=ORANGE, highlightthickness=0)
-        dot.create_oval(4, 4, 32, 32, fill="white", outline="white")
-        dot.create_oval(11, 11, 25, 25, fill=ORANGE, outline=ORANGE)
+        dot = tk.Canvas(self.badge, width=px(36), height=px(36), bg=ORANGE, highlightthickness=0)
+        dot.create_oval(px(4), px(4), px(32), px(32), fill="white", outline="white")
+        dot.create_oval(px(11), px(11), px(25), px(25), fill=ORANGE, outline=ORANGE)
         dot.pack()
         self.windows = [*self.strips, self.caption, self.badge]
         self.screenshot_only: list[tk.Misc] = []  # hidden during screenshots, never by hide()
@@ -83,7 +83,7 @@ class Overlay:
         self._on_main(lambda: self.caption_label.config(text=text[:60]))
 
     def move_hand(self, x: int, y: int) -> None:
-        self._on_main(lambda: self.badge.geometry(f"+{x + BADGE_OFFSET}+{y + BADGE_OFFSET}"))
+        self._on_main(lambda: self.badge.geometry(f"+{x + px(28)}+{y + px(28)}"))
 
     def hide(self) -> None:
         def fn():

@@ -20,7 +20,7 @@ from robot_helper.core.texts import T
 from robot_helper.platform_.base import get_platform
 from robot_helper.ui.overlay import Overlay
 from robot_helper.ui.widgets import (BG, BLUE, CARD, FG, FIELD, GREEN, MUTED, ORANGE, RED, Chat, Pill,
-                                     card, check_row, edit_menu, font, install_shortcuts, icon_button, make_floating, make_panel, rounded)
+                                     card, check_row, edit_menu, font, install_shortcuts, px, set_scale, icon_button, make_floating, make_panel, rounded)
 
 ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 DOCKS = ["right", "left", "bottom_left", "top_right", "bottom"]
@@ -35,11 +35,11 @@ NEED_PERMS = "Чтобы я мог работать на компьютере, �
 def place(dock: str, w: int, h: int, sw: int, sh: int) -> tuple[int, int]:
     """Top-left corner of a w x h window docked at `dock` on a sw x sh screen."""
     return {
-        "right": (sw - w - MARGIN, (sh - h) // 2),
-        "left": (MARGIN, (sh - h) // 2),
-        "bottom_left": (MARGIN, sh - h - BOTTOM),
-        "top_right": (sw - w - MARGIN, TOP),
-        "bottom": ((sw - w) // 2, sh - h - BOTTOM),
+        "right": (sw - w - px(MARGIN), (sh - h) // 2),
+        "left": (px(MARGIN), (sh - h) // 2),
+        "bottom_left": (px(MARGIN), sh - h - px(BOTTOM)),
+        "top_right": (sw - w - px(MARGIN), px(TOP)),
+        "bottom": ((sw - w) // 2, sh - h - px(BOTTOM)),
     }[dock]
 
 
@@ -72,7 +72,7 @@ class App:
         root.title("Робот-помощник")
         make_panel(root)
         root.resizable(True, True)
-        root.minsize(340, 420)
+        root.minsize(px(340), px(420))
         root.protocol("WM_DELETE_WINDOW", self.quit)
         try:
             self.logo_big = tk.PhotoImage(file=str(ASSETS / "icon.png"))
@@ -89,7 +89,7 @@ class App:
         self.overlay.screenshot_only += [root, self.mini]  # hidden for screenshots, never withdrawn
         self.services.watch_escape(self._on_global_escape)
         self.body = tk.Frame(root, bg=BG)
-        self.body.pack(fill="both", expand=True, padx=14, pady=(6, 14))
+        self.body.pack(fill="both", expand=True, padx=px(14), pady=(px(6), px(14)))
         needs_setup = config.get_api_key() is None
         self.set_mode("full" if needs_setup else "widget", setup=needs_setup)
         pending = config.get_pref("pending_task", "")
@@ -103,15 +103,15 @@ class App:
             self.mode = "mini"
             self.root.withdraw()
             sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-            x, y = place(self.dock, MINI, MINI, sw, sh)
-            self.mini.geometry(f"{MINI}x{MINI}+{x}+{y}")
+            x, y = place(self.dock, px(MINI), px(MINI), sw, sh)
+            self.mini.geometry(f"{px(MINI)}x{px(MINI)}+{x}+{y}")
             self._paint_mini()
             self.mini.deiconify()
             return
         self.mini.withdraw()
         self.mode = mode
-        w, h = SIZES[mode]
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w, h = min(px(SIZES[mode][0]), sw - px(40)), min(px(SIZES[mode][1]), sh - px(TOP + BOTTOM))
         x, y = ((sw - w) // 2, (sh - h) // 2) if mode == "full" else place(self.dock, w, h, sw, sh)
         self.root.geometry(f"{w}x{h}+{x}+{y}")
         for child in self.body.winfo_children():
@@ -128,7 +128,7 @@ class App:
     def _make_mini(self) -> tk.Toplevel:
         win = tk.Toplevel(self.root)
         make_floating(win)
-        self.mini_canvas = tk.Canvas(win, width=MINI, height=MINI, bg=BG, highlightthickness=0, cursor="hand2")
+        self.mini_canvas = tk.Canvas(win, width=px(MINI), height=px(MINI), bg=BG, highlightthickness=0, cursor="hand2")
         self.mini_canvas.pack()
         self.mini_canvas.bind("<ButtonRelease-1>", lambda e: None if self._running else self.set_mode("widget"))
         win.withdraw()
@@ -137,9 +137,10 @@ class App:
     def _paint_mini(self):
         c = self.mini_canvas
         c.delete("all")
-        c.create_rectangle(0, 0, MINI, MINI, fill=BG, outline=BLUE if self._running else FIELD, width=3)
+        m = px(MINI)
+        c.create_rectangle(0, 0, m, m, fill=BG, outline=BLUE if self._running else FIELD, width=px(3))
         if self.logo is not None:
-            c.create_image(MINI // 2, MINI // 2, image=self.logo)
+            c.create_image(m // 2, m // 2, image=self.logo)
 
     def _header(self, body):
         head = tk.Frame(body, bg=BG)
@@ -151,8 +152,8 @@ class App:
         tk.Label(title, text="Помощник", bg=BG, fg=FG, font=font(16, "bold")).pack(anchor="w")
         row = tk.Frame(title, bg=BG)
         row.pack(anchor="w")
-        self.dot = tk.Canvas(row, width=8, height=8, bg=BG, highlightthickness=0)
-        self.dot_item = self.dot.create_oval(0, 0, 8, 8, fill=GREEN, outline=GREEN)
+        self.dot = tk.Canvas(row, width=px(8), height=px(8), bg=BG, highlightthickness=0)
+        self.dot_item = self.dot.create_oval(0, 0, px(8), px(8), fill=GREEN, outline=GREEN)
         self.dot.pack(side="left", padx=(0, 6))
         self.status = tk.Label(row, text="Готов", bg=BG, fg=MUTED, font=font(13))
         self.status.pack(side="left")
@@ -235,7 +236,7 @@ class App:
         perm_card = card(box)
         tk.Label(perm_card, text="Разрешения macOS", bg=CARD, fg=FG, font=font(16, "bold")).pack(anchor="w")
         tk.Label(perm_card, text="Нажмите «Открыть» и включите RobotHelper в каждом разделе.", bg=CARD,
-                 fg=MUTED, font=font(14), wraplength=700, justify="left").pack(anchor="w", pady=(4, 8))
+                 fg=MUTED, font=font(14), wraplength=px(700), justify="left").pack(anchor="w", pady=(4, 8))
         for item in [m.split("→")[-1].strip() for m in missing] + ["Мониторинг ввода"]:
             row = tk.Frame(perm_card, bg=CARD)
             row.pack(fill="x", pady=3)
@@ -243,7 +244,7 @@ class App:
             Pill(row, "Открыть", BLUE, lambda n=item: self.services.open_settings(n),
                  w=110, h=34, size=14).pack(side="right")
         tk.Label(perm_card, text="Когда всё включено, нажмите «Перезапустить» — я продолжу с того места.",
-                 bg=CARD, fg=MUTED, font=font(14), wraplength=700, justify="left").pack(anchor="w", pady=(10, 8))
+                 bg=CARD, fg=MUTED, font=font(14), wraplength=px(700), justify="left").pack(anchor="w", pady=(10, 8))
         row = tk.Frame(perm_card, bg=CARD)
         row.pack(anchor="w")
         Pill(row, "Перезапустить", GREEN, self.restart, w=170, h=40, size=15).pack(side="left")
@@ -289,12 +290,14 @@ class App:
 
     def _chat_list(self, parent, width=None):
         """List of saved chats: tap to open, trash to delete."""
-        box = tk.Frame(parent, bg=BG, width=width or 0)
-        Pill(box, "Новый чат", BLUE, self.new_chat, w=(width or 300) - 12, h=40, size=15).pack(pady=(0, 10))
-        holder = tk.Canvas(box, bg=BG, highlightthickness=0, width=(width or 300) - 8)
+        width = width or px(300)  # real pixels
+        box = tk.Frame(parent, bg=BG, width=width)
+        Pill(box, "Новый чат", BLUE, self.new_chat, w=(width - px(12)) * 1000 / px(1000), h=40, size=15).pack(
+            pady=(0, px(10)))
+        holder = tk.Canvas(box, bg=BG, highlightthickness=0, width=width - px(8))
         holder.pack(fill="both", expand=True)
         inner = tk.Frame(holder, bg=BG)
-        holder.create_window((0, 0), window=inner, anchor="nw", width=(width or 300) - 8)
+        holder.create_window((0, 0), window=inner, anchor="nw", width=width - px(8))
         inner.bind("<Configure>", lambda e: holder.configure(scrollregion=holder.bbox("all")))
         for chat in self.chats.items:
             active = chat["id"] == self.chats.current_id
@@ -303,7 +306,7 @@ class App:
             row.pack(fill="x", pady=2)
             title = chat["title"] or "Новый чат"
             lab = tk.Label(row, text=title, bg=color, fg=FG, font=font(14, "bold" if active else "normal"),
-                           anchor="w", justify="left", wraplength=(width or 300) - 70)
+                           anchor="w", justify="left", wraplength=width - px(70))
             lab.pack(side="left", fill="x", expand=True, padx=10, pady=8)
             for wdg in (row, lab):
                 wdg.bind("<ButtonRelease-1>", lambda e, i=chat["id"]: self.open_chat(i))
@@ -314,14 +317,15 @@ class App:
     def _build_chat(self, body):
         full = self.mode == "full"
         if not full and self.show_list:
-            self._chat_list(body, width=int(self.root.winfo_width() or SIZES["widget"][0]) - 28).pack(
+            self._chat_list(body, width=int(self.root.winfo_width() or px(SIZES["widget"][0])) - px(28)).pack(
                 fill="both", expand=True)
             return
         if full:
-            side = self._chat_list(body, width=240)
+            side = self._chat_list(body, width=px(240))
             side.pack(side="left", fill="y", padx=(0, 14))
             side.pack_propagate(False)
-        size, h = (18, 54) if full else (15, 44)
+        size, design_h = (18, 54) if full else (15, 44)
+        h = px(design_h)  # real pixels for the field; Pills take design units
         bar = tk.Frame(body, bg=BG)
         bar.pack(side="bottom", fill="x", pady=(8, 0))
         self.files_row = tk.Frame(body, bg=BG)
@@ -334,10 +338,10 @@ class App:
             self.chat.add(text, who)
         if not self.history:  # shown, not saved: an empty chat stays empty
             self.chat.add(T["greeting"] + " Напишите, что сделать.", "robot")
-        Pill(bar, color=BLUE, command=self.submit, w=h, h=h, icon="send", icon_scale=h / 56).pack(side="right", padx=(6, 0))
-        Pill(bar, color=FIELD, command=self.dictate, w=h, h=h, icon="mic", icon_scale=h / 56,
+        Pill(bar, color=BLUE, command=self.submit, w=design_h, h=design_h, icon="send", icon_scale=design_h / 56).pack(side="right", padx=(6, 0))
+        Pill(bar, color=FIELD, command=self.dictate, w=design_h, h=design_h, icon="mic", icon_scale=design_h / 56,
              fg=FG).pack(side="right", padx=(6, 0))
-        Pill(bar, color=FIELD, command=self.attach, w=h, h=h, icon="clip", icon_scale=h / 56,
+        Pill(bar, color=FIELD, command=self.attach, w=design_h, h=design_h, icon="clip", icon_scale=design_h / 56,
              fg=FG).pack(side="left", padx=(0, 6))
         field = tk.Canvas(bar, bg=BG, highlightthickness=0, height=h, width=10)
         field.pack(side="left", fill="x", expand=True)
@@ -363,7 +367,7 @@ class App:
             lines = int(self.entry.count("1.0", "end", "displaylines")[0] or 1) if self.entry.winfo_exists() else 1
             lines = max(1, min(5, lines))
             self.entry.configure(height=lines)
-            field.configure(height=max(h, lines * (size + 10) + 18))
+            field.configure(height=max(h, px(lines * (size + 10) + 18)))
 
         self.entry.bind("<KeyRelease>", grow, add="+")
         self._placeholder(self.entry, "Напишите, что сделать…" if full else "Что сделать?")
@@ -398,7 +402,7 @@ class App:
         make_floating(win)
         win.configure(bg=RED)
         w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        win.geometry(f"200x64+{(w - 200) // 2}+{h - 64 - BOTTOM}")
+        win.geometry(f"{px(200)}x{px(64)}+{(w - px(200)) // 2}+{h - px(64 + BOTTOM)}")
         btn = tk.Label(win, text=T["stop"], bg=RED, fg="white", font=font(24, "bold"), cursor="hand2")
         btn.pack(fill="both", expand=True)
         btn.bind("<ButtonRelease-1>", lambda e: self.stop())
@@ -611,10 +615,10 @@ class App:
             win = tk.Toplevel(self.root)
             make_panel(win)
             win.title("Робот-помощник")
-            w, h = 520, 210
+            w, h = px(520), px(210)
             sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
             win.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
-            tk.Label(win, text=text, bg=BG, fg=FG, font=font(20, "bold"), wraplength=w - 60,
+            tk.Label(win, text=text, bg=BG, fg=FG, font=font(20, "bold"), wraplength=w - px(60),
                      justify="center").pack(pady=(28, 18), padx=30)
             row = tk.Frame(win, bg=BG)
             row.pack()
@@ -644,8 +648,11 @@ class App:
 
 
 def main():
+    services = get_platform()
+    services.prepare()  # Windows DPI awareness must be on before Tk starts, or 4K screens get half-size windows
     root = tk.Tk()
-    App(root)
+    set_scale(root)
+    App(root, services)
     if "--smoke" in sys.argv:  # build the UI and exit: used by CI and manual checks
         root.after(1500, root.destroy)
     root.mainloop()
