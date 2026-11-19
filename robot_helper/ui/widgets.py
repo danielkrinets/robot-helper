@@ -110,14 +110,12 @@ def draw_icon(c: tk.Canvas, name: str, cx: float, cy: float, color: str, s: floa
     elif name == "list":  # chats: three lines
         for dy in (-5, 0, 5):
             c.create_line(cx - 7 * s, cy + dy * s, cx + 7 * s, cy + dy * s, **line)
-    elif name == "clip":  # paperclip
-        c.create_line(cx + 4 * s, cy - 4 * s, cx + 4 * s, cy + 5 * s, **line)
-        c.create_arc(cx - 4 * s, cy + 1 * s, cx + 4 * s, cy + 9 * s, start=180, extent=180, style="arc",
-                     outline=color, width=w)
-        c.create_line(cx - 4 * s, cy + 5 * s, cx - 4 * s, cy - 7 * s, **line)
-        c.create_arc(cx - 4 * s, cy - 11 * s, cx + 4 * s, cy - 3 * s, start=0, extent=180, style="arc",
-                     outline=color, width=w)
-        c.create_line(cx + 4 * s, cy - 7 * s, cx + 4 * s, cy - 4 * s, **line)
+    elif name == "clip":  # attach: a page with a folded corner and a plus
+        x0, y0, x1, y1, f = cx - 7 * s, cy - 9 * s, cx + 7 * s, cy + 9 * s, 5 * s
+        c.create_line(x1 - f, y0, x0 + 2 * s, y0, x0, y0 + 2 * s, x0, y1 - 2 * s, x0 + 2 * s, y1,
+                      x1 - 2 * s, y1, x1, y1 - 2 * s, x1, y0 + f, x1 - f, y0, x1 - f, y0 + f, x1, y0 + f, **line)
+        c.create_line(cx, cy - 1 * s, cx, cy + 6 * s, **line)
+        c.create_line(cx - 3.5 * s, cy + 2.5 * s, cx + 3.5 * s, cy + 2.5 * s, **line)
     elif name == "trash":
         c.create_line(cx - 7 * s, cy - 6 * s, cx + 7 * s, cy - 6 * s, **line)
         c.create_line(cx - 5 * s, cy - 6 * s, cx - 4 * s, cy + 7 * s, cx + 4 * s, cy + 7 * s, cx + 5 * s,
@@ -125,6 +123,33 @@ def draw_icon(c: tk.Canvas, name: str, cx: float, cy: float, color: str, s: floa
     elif name == "dock":  # a screen with a panel docked to one side
         rounded(c, cx - 8 * s, cy - 6 * s, cx + 8 * s, cy + 6 * s, 3 * s, "", outline=color, width=w)
         c.create_line(cx + 3 * s, cy - 5 * s, cx + 3 * s, cy + 5 * s, **line)
+
+
+MOD = "Command" if sys.platform == "darwin" else "Control"
+# with a Russian keyboard layout Cmd+V arrives as Cmd+"м", which Tk does not treat as paste
+CYRILLIC = {"Cyrillic_em": "<<Paste>>", "Cyrillic_es": "<<Copy>>", "Cyrillic_che": "<<Cut>>",
+            "Cyrillic_ef": "<<SelectAll>>", "Cyrillic_ya": "<<Undo>>"}
+
+
+def install_shortcuts(root: tk.Misc) -> None:
+    """Make copy / paste / cut / select all / undo work in any keyboard layout."""
+    def on_key(e):
+        event = CYRILLIC.get(e.keysym)
+        if event and e.widget is not None:
+            with contextlib.suppress(tk.TclError):
+                e.widget.event_generate(event)
+            return "break"
+    root.bind_all(f"<{MOD}-KeyPress>", on_key, add="+")
+
+
+def edit_menu(widget: tk.Text) -> None:
+    """Right-click menu for a text field: cut, copy, paste, select all."""
+    menu = tk.Menu(widget, tearoff=0)
+    for label, event in (("Вырезать", "<<Cut>>"), ("Копировать", "<<Copy>>"), ("Вставить", "<<Paste>>"),
+                         ("Выделить всё", "<<SelectAll>>")):
+        menu.add_command(label=label, command=lambda ev=event: (widget.focus_force(), widget.event_generate(ev)))
+    for seq in ("<Button-2>", "<Button-3>", "<Control-Button-1>"):
+        widget.bind(seq, lambda e: menu.tk_popup(e.x_root, e.y_root))
 
 
 class Pill(tk.Canvas):
@@ -208,6 +233,9 @@ class Chat(tk.Frame):
         self.inner.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.window, width=e.width))
         self.canvas.configure(yscrollincrement=8)
+        self.selected = None  # (canvas, text item) holding a drag selection
+        self.canvas.bind_all(f"<{MOD}-c>", self._copy_selection, add="+")
+        self.canvas.bind_all("<<Copy>>", self._copy_selection, add="+")
         self.canvas.bind_all("<MouseWheel>", self._wheel)
         self.canvas.bind_all("<Button-4>", lambda e: self._scroll(-3))  # X11
         self.canvas.bind_all("<Button-5>", lambda e: self._scroll(3))
@@ -241,6 +269,25 @@ class Chat(tk.Frame):
 
     on_copied = None
 
+    def _copy_selection(self, _=None):
+        if not self.selected:
+            return
+        c, t = self.selected
+        with contextlib.suppress(tk.TclError):
+            if c.winfo_exists() and c.select_item():
+                text = c.itemcget(t, "text")
+                self.copy(text[int(c.index(t, "sel.first")):int(c.index(t, "sel.last")) + 1])
+                return "break"
+
+    def _select_start(self, c, t, e):
+        if self.selected and self.selected[0] is not c:
+            with contextlib.suppress(tk.TclError):
+                self.selected[0].select_clear()
+        self.selected = (c, t)
+        c.focus_set()
+        c.select_from(t, f"@{e.x},{e.y}")
+        c.select_to(t, f"@{e.x},{e.y}")
+
     def add(self, text: str, who: str = "robot"):
         row = tk.Frame(self.inner, bg=BG)
         row.pack(fill="x", padx=4, pady=4)
@@ -260,8 +307,11 @@ class Chat(tk.Frame):
             menu.add_command(label="Копировать", command=lambda: self.copy(text))
             for seq in ("<Button-2>", "<Button-3>", "<Control-Button-1>"):
                 c.bind(seq, lambda e: menu.tk_popup(e.x_root, e.y_root))
-            c.configure(cursor="hand2")
-            c.bind("<Double-Button-1>", lambda e: self.copy(text))
+            c.configure(cursor="xterm", selectbackground=shade(BLUE, 0.8), selectforeground="white")
+            c.bind("<ButtonPress-1>", lambda e: self._select_start(c, t, e))
+            c.bind("<B1-Motion>", lambda e: c.select_to(t, f"@{e.x},{e.y}"))
+            c.bind("<Double-Button-1>", lambda e: (c.select_from(t, 0), c.select_to(t, "end"), self.copy(text)))
+            menu.insert_command(0, label="Копировать выделенное", command=self._copy_selection)
         if who == "robot":
             link = tk.Label(row, text="Копировать", bg=BG, fg=MUTED, font=font(max(11, self.size - 4)),
                             cursor="hand2")

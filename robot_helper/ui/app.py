@@ -20,7 +20,7 @@ from robot_helper.core.texts import T
 from robot_helper.platform_.base import get_platform
 from robot_helper.ui.overlay import Overlay
 from robot_helper.ui.widgets import (BG, BLUE, CARD, FG, FIELD, GREEN, MUTED, ORANGE, RED, Chat, Pill,
-                                     card, check_row, font, icon_button, make_floating, make_panel, rounded)
+                                     card, check_row, edit_menu, font, install_shortcuts, icon_button, make_floating, make_panel, rounded)
 
 ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 DOCKS = ["right", "left", "bottom_left", "top_right", "bottom"]
@@ -81,6 +81,7 @@ class App:
         except tk.TclError:
             self.logo_big = self.logo = None
         root.bind("<Escape>", lambda e: self.stop())
+        install_shortcuts(root)
         self.overlay = Overlay(root, self.services)
         self.stop_win = self._make_stop_window()
         self.mini = self._make_mini()
@@ -341,6 +342,8 @@ class App:
         field.bind("<Button-1>", lambda e: self.entry.focus_force())
         self.entry.bind("<Return>", lambda e: (self.submit(), "break")[1])
         self.entry.bind("<Shift-Return>", lambda e: None)  # new line
+        self.entry.bind("<<Paste>>", self._paste, add="+")
+        edit_menu(self.entry)
 
         def grow(_=None):  # the field grows up to 5 lines as the person types
             lines = int(self.entry.count("1.0", "end", "displaylines")[0] or 1) if self.entry.winfo_exists() else 1
@@ -407,6 +410,37 @@ class App:
             if p not in self.files:
                 self.files.append(p)
         self._paint_files()
+
+    def _paste(self, _=None):
+        """Cmd+V with a picture or copied files in the clipboard attaches them; text pastes as usual."""
+        try:
+            from PIL import ImageGrab
+            got = ImageGrab.grabclipboard()
+        except Exception:
+            got = None
+        if got is None:
+            if getattr(self.entry, "is_hint", False):  # paste into an empty field replaces the hint
+                self.entry.delete("1.0", "end")
+                self.entry.config(fg=FG)
+                self.entry.is_hint = False
+            return None
+        if isinstance(got, list):
+            paths = [p for p in got if isinstance(p, str) and os.path.isfile(p)]
+        else:
+            import tempfile
+            path = os.path.join(tempfile.gettempdir(), f"robot-helper-paste-{os.getpid()}-{id(got)}.png")
+            got.save(path)
+            paths = [path]
+        for p in paths:
+            try:
+                to_block(p)
+            except ValueError as exc:
+                self._post(f"{pathlib.Path(p).name}: {exc}", "note")
+                continue
+            if p not in self.files:
+                self.files.append(p)
+        self._paint_files()
+        return "break"
 
     def _paint_files(self):
         row = getattr(self, "files_row", None)
