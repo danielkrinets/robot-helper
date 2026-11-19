@@ -543,7 +543,9 @@ class App:
     def _run(self, task: str, context=None, blocks=None):
         try:
             state = self.agent.run(task, history=context, attachments=blocks or None)
-        except Exception:  # never show a traceback to the person
+        except Exception as exc:  # never show a traceback to the person; keep it in the log file
+            from robot_helper.core.agent import log_error
+            log_error(exc)
             state = State.ERROR
             self.last_said = T["try_again"]
         self.root.after(0, lambda: self._finished(state))

@@ -204,11 +204,11 @@ def _status(cls, code):
     return cls("err", response=httpx.Response(code, request=req), body=None)
 
 
-def test_rate_limit_says_try_again():
+def test_rate_limit_says_busy():
     client = FakeClient(_status(anthropic.RateLimitError, 429))
     h, said, _ = hooks()
     assert Agent(client, FakeExecutor(), h).run("x") == State.ERROR
-    assert said[-1] == T["try_again"]
+    assert said[-1] == T["busy"]
 
 
 def test_network_error_says_no_network():

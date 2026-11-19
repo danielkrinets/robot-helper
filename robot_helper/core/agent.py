@@ -37,6 +37,20 @@ def _today() -> str:
     return f"\n\nСегодня {d.day} {MONTHS[d.month - 1]} {d.year} года."
 
 
+LOG = __import__("pathlib").Path.home() / "robot-helper-log.txt"
+
+
+def log_error(exc: BaseException) -> None:
+    """Append the error to a text file in the home folder, so the installer can see what went wrong."""
+    import traceback
+    try:
+        with LOG.open("a", encoding="utf-8") as f:
+            f.write(f"\n--- {_dt.datetime.now():%Y-%m-%d %H:%M:%S}\n")
+            f.write("".join(traceback.format_exception(exc)))
+    except OSError:
+        pass
+
+
 class State(Enum):
     IDLE = "idle"
     THINKING = "thinking"
@@ -117,7 +131,13 @@ class Agent:
                 return self._finish(State.ERROR, T["bad_key"])
             except anthropic.APIConnectionError:
                 return self._finish(State.ERROR, T["no_network"])
-            except anthropic.APIStatusError:
+            except anthropic.RateLimitError as exc:
+                log_error(exc)
+                return self._finish(State.ERROR, T["busy"])
+            except anthropic.APIStatusError as exc:
+                log_error(exc)
+                if any(w in str(exc).lower() for w in ("credit", "billing", "usage limit")):
+                    return self._finish(State.ERROR, T["no_credit"])
                 return self._finish(State.ERROR, T["try_again"])
 
             if response.stop_reason == "refusal":
