@@ -15,6 +15,7 @@ from robot_helper.core.texts import T
 from robot_helper.core.tools import TOOLS
 
 import sys as _sys
+import datetime as _dt
 
 OS_HINT = ("\n\nКомпьютер: macOS. Программы и сайты открывай сам: Spotlight (cmd+space), набери название, Enter. "
            "Сайт открывай в браузере по умолчанию." if _sys.platform == "darwin" else
@@ -25,6 +26,15 @@ EFFORT = "medium"
 MAX_STEPS = 40
 MAX_IMAGES = 90  # the API accepts at most 100 images per request
 HALT_TEXT = "Not executed: an earlier computer action in this turn failed."
+
+
+MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября",
+          "октября", "ноября", "декабря"]
+
+
+def _today() -> str:
+    d = _dt.date.today()
+    return f"\n\nСегодня {d.day} {MONTHS[d.month - 1]} {d.year} года."
 
 
 class State(Enum):
@@ -95,7 +105,7 @@ class Agent:
             self.hooks.on_state(State.THINKING)
             try:
                 response = self.client.messages.create(
-                    model=self.model, max_tokens=16000, system=SYSTEM_PROMPT + OS_HINT, tools=TOOLS,
+                    model=self.model, max_tokens=16000, system=SYSTEM_PROMPT + OS_HINT + _today(), tools=TOOLS,
                     messages=messages, output_config={"effort": EFFORT})
             except anthropic.AuthenticationError:
                 return self._finish(State.ERROR, T["bad_key"])
