@@ -69,7 +69,7 @@ class MacServices:
 
     def start_dictation(self) -> None:
         # ask AppKit to start system dictation in the focused text field (same as Edit > Start Dictation)
-        try:
+        try:  # runs on the Tk main thread via after(); a plain call, no Python callbacks involved
             from AppKit import NSApp
             NSApp().sendAction_to_from_("startDictation:", None, None)
         except Exception:
@@ -82,15 +82,23 @@ class MacServices:
         pass  # overlay avoids covering targets instead (edge strips + offset badge)
 
     def watch_escape(self, callback: Callable[[], None]) -> None:
-        # pynput's listener calls TSM APIs off the main thread and macOS kills the app for it,
-        # so use an AppKit global monitor instead (runs on the main thread inside Tk's event loop).
-        try:
-            from AppKit import NSEvent, NSEventMaskKeyDown
+        # Poll the Esc key state from a plain thread. Callback-based hooks crash here:
+        # pynput calls TSM off the main thread, and an AppKit monitor block running inside
+        # Tk's event loop corrupts the Python thread state (fatal GIL error).
+        import threading
+        import time
 
-            def handler(event):
-                if event.keyCode() == 53:  # Esc
+        def poll():
+            try:
+                from Quartz import CGEventSourceKeyState, kCGEventSourceStateCombinedSessionState
+            except Exception:
+                return  # STOP button and the in-app Esc still work
+            was = False
+            while True:
+                down = bool(CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, 53))  # Esc
+                if down and not was:
                     callback()
+                was = down
+                time.sleep(0.05)
 
-            self._esc_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(NSEventMaskKeyDown, handler)
-        except Exception:
-            self._esc_monitor = None  # STOP button and the in-app Esc still work
+        threading.Thread(target=poll, daemon=True).start()
